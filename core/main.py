@@ -12,6 +12,15 @@ import subprocess
 import sys
 import traceback  # 👈 IMPORTANTE: faltaba esta importación
 
+# ===== IMPORTACIÓN OPCIONAL DE PYCAW PARA CONTROL DE AUDIO DEL SISTEMA =====
+try:
+    from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+    from comtypes import CLSCTX_ALL
+    from ctypes import cast, POINTER
+    HAS_PYCAW = True
+except Exception:
+    HAS_PYCAW = False
+
 # ===== MANEJADOR DE ERRORES GLOBAL =====
 def manejar_error_global(exc_type, exc_value, exc_traceback):
     """Registra errores y muestra ventana de crash."""
@@ -62,6 +71,7 @@ class MainPanel:
             "voice_follow": True,
             "voice_gift": True,
             "filters_enabled": True,
+            "mute_system_on_effect": False,  # 👈 NUEVA OPCIÓN
             "filtros": [],
             "eventos": ["Doughnut"],
             "reconnect_interval": 5,
@@ -77,6 +87,7 @@ class MainPanel:
         self.voice_follow = tk.BooleanVar(value=self.config_data["voice_follow"])
         self.voice_gift = tk.BooleanVar(value=self.config_data["voice_gift"])
         self.filters_enabled = tk.BooleanVar(value=self.config_data["filters_enabled"])
+        self.mute_system_on_effect = tk.BooleanVar(value=self.config_data["mute_system_on_effect"])  # 👈 NUEVA FLAG
 
         # ---------------- FILTROS ----------------
         self.filtros_slots = []
@@ -185,50 +196,52 @@ class MainPanel:
         ttk.Checkbutton(parent, text="🔊 Leer FOLLOW", variable=self.voice_follow).grid(row=8, column=0, sticky="w", pady=2)
         ttk.Checkbutton(parent, text="🔊 Leer GIFT", variable=self.voice_gift).grid(row=9, column=0, sticky="w", pady=2)
         ttk.Checkbutton(parent, text="🎬 Activar FILTROS", variable=self.filters_enabled).grid(row=10, column=0, sticky="w", pady=2)
+        # 👇 NUEVA OPCIÓN
+        ttk.Checkbutton(parent, text="🔇 Mute PC durante efectos con sonido", variable=self.mute_system_on_effect).grid(row=11, column=0, columnspan=2, sticky="w", pady=2)
 
         # Reconexión
         ttk.Separator(parent, orient="horizontal").grid(
-            row=11, column=0, columnspan=2, sticky="ew", pady=10
+            row=12, column=0, columnspan=2, sticky="ew", pady=10
         )
-        ttk.Label(parent, text="Reconexión (seg):").grid(row=12, column=0, sticky="w", pady=2)
+        ttk.Label(parent, text="Reconexión (seg):").grid(row=13, column=0, sticky="w", pady=2)
         self.reconnect_interval = tk.IntVar(value=self.config_data["reconnect_interval"])
         ttk.Spinbox(
             parent, from_=1, to=60, width=8,
             textvariable=self.reconnect_interval
-        ).grid(row=12, column=1, pady=2)
+        ).grid(row=13, column=1, pady=2)
 
-        ttk.Label(parent, text="Intentos máximos:").grid(row=13, column=0, sticky="w", pady=2)
+        ttk.Label(parent, text="Intentos máximos:").grid(row=14, column=0, sticky="w", pady=2)
         self.reconnect_attempts = tk.IntVar(value=self.config_data["reconnect_attempts"])
         ttk.Spinbox(
             parent, from_=1, to=100, width=8,
             textvariable=self.reconnect_attempts
-        ).grid(row=13, column=1, pady=2)
+        ).grid(row=14, column=1, pady=2)
 
         # 👇 VOLUMENES SEPARADOS
         ttk.Separator(parent, orient="horizontal").grid(
-            row=14, column=0, columnspan=2, sticky="ew", pady=10
+            row=15, column=0, columnspan=2, sticky="ew", pady=10
         )
-        ttk.Label(parent, text="Volumen TTS (%):").grid(row=15, column=0, sticky="w", pady=2)
+        ttk.Label(parent, text="Volumen TTS (%):").grid(row=16, column=0, sticky="w", pady=2)
         self.volume_tts_val = tk.IntVar(value=self.config_data["volume_tts"])
         ttk.Spinbox(
             parent, from_=0, to=100, width=6, textvariable=self.volume_tts_val
-        ).grid(row=15, column=1, pady=2, sticky="w")
+        ).grid(row=16, column=1, pady=2, sticky="w")
         self.volume_tts_slider = ttk.Scale(
             parent, from_=0, to=100, orient="horizontal",
             variable=self.volume_tts_val, length=150
         )
-        self.volume_tts_slider.grid(row=16, column=1, pady=2, sticky="w")
+        self.volume_tts_slider.grid(row=17, column=1, pady=2, sticky="w")
 
-        ttk.Label(parent, text="Volumen efectos (%):").grid(row=17, column=0, sticky="w", pady=2)
+        ttk.Label(parent, text="Volumen efectos (%):").grid(row=18, column=0, sticky="w", pady=2)
         self.volume_effects_val = tk.IntVar(value=self.config_data["volume_effects"])
         ttk.Spinbox(
             parent, from_=0, to=100, width=6, textvariable=self.volume_effects_val
-        ).grid(row=17, column=1, pady=2, sticky="w")
+        ).grid(row=18, column=1, pady=2, sticky="w")
         self.volume_effects_slider = ttk.Scale(
             parent, from_=0, to=100, orient="horizontal",
             variable=self.volume_effects_val, length=150
         )
-        self.volume_effects_slider.grid(row=18, column=1, pady=2, sticky="w")
+        self.volume_effects_slider.grid(row=19, column=1, pady=2, sticky="w")
 
     def setup_filtros_tab(self):
         parent = self.tab_filtros
@@ -548,6 +561,7 @@ class MainPanel:
             "voice_follow": self.voice_follow.get(),
             "voice_gift": self.voice_gift.get(),
             "filters_enabled": self.filters_enabled.get(),
+            "mute_system_on_effect": self.mute_system_on_effect.get(),  # 👈 GUARDAR NUEVA OPCIÓN
             "filtros": self.exportar_filtros(),
             "reconnect_interval": self.reconnect_interval.get(),
             "reconnect_attempts": self.reconnect_attempts.get(),
@@ -562,12 +576,57 @@ class MainPanel:
         except Exception as e:
             print("Error al guardar configuración:", e)
 
+    # 👇 MÉTODOS PARA MUTEO DEL SISTEMA
+    def mute_system_audio(self):
+        if not HAS_PYCAW or not self.mute_system_on_effect.get():
+            return False
+        try:
+            devices = AudioUtilities.GetSpeakers()
+            interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+            volume = cast(interface, POINTER(IAudioEndpointVolume))
+            self.was_muted_before_effect = volume.GetMute()
+            volume.SetMute(1, None)
+            return True
+        except Exception as e:
+            print("Error al mutear sistema:", e)
+            return False
+
+    def unmute_system_audio(self):
+        if not HAS_PYCAW or not self.mute_system_on_effect.get():
+            return
+        try:
+            devices = AudioUtilities.GetSpeakers()
+            interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+            volume = cast(interface, POINTER(IAudioEndpointVolume))
+            # Solo restaurar si no estaba muteado antes
+            if not getattr(self, 'was_muted_before_effect', True):
+                volume.SetMute(0, None)
+        except Exception as e:
+            print("Error al desmutear sistema:", e)
+
     def ejecutar_filtro(self, filtro, duracion, repeticiones=1):
         if not os.path.exists("core/gift_anim.py"):
             return
         
+        # 👇 Detectar si el efecto tiene sonido (ajusta según tus nombres)
+        tiene_sonido = (
+            filtro in ("SonidoR", "Boom", "Rebote") or
+            filtro.startswith("song_") or
+            "sonido" in filtro.lower() or
+            "sound" in filtro.lower()
+        )
+
+        muted = False
+        if tiene_sonido and self.mute_system_on_effect.get():
+            muted = self.mute_system_audio()
+
         try:
-            dur = int(duracion) if duracion.isdigit() else 15
+            # Permitir duración "0" para reproducción completa
+            if duracion.isdigit():
+                dur = int(duracion)
+            else:
+                dur = 15
+
             volumen = self.volume_effects_val.get()
             for _ in range(repeticiones):
                 subprocess.Popen(
@@ -577,7 +636,16 @@ class MainPanel:
                 )
                 if repeticiones > 1:
                     time.sleep(0.1)
+            
+            # Si muteamos, esperar y desmutear
+            if muted:
+                total_duration = max(1, dur * repeticiones)
+                time.sleep(total_duration + 0.3)
+                self.unmute_system_audio()
+
         except Exception as e:
+            if muted:
+                self.unmute_system_audio()
             print("Error al ejecutar filtro:", e)
                                     
     def exportar_filtros(self):
@@ -794,6 +862,8 @@ class MainPanel:
                     for key, value in loaded.items():
                         if key != "eventos":  # Los eventos vienen de data.json
                             self.config_data[key] = value
+                    # Cargar también la nueva opción
+                    self.config_data["mute_system_on_effect"] = loaded.get("mute_system_on_effect", False)
             except Exception as e:
                 print(f"❌ Error al cargar config.json: {e}")
 
@@ -852,6 +922,7 @@ class MainPanel:
             "voice_follow": self.voice_follow.get(),
             "voice_gift": self.voice_gift.get(),
             "filters_enabled": self.filters_enabled.get(),
+            "mute_system_on_effect": self.mute_system_on_effect.get(),  # 👈 GUARDAR
             "filtros": self.exportar_filtros(),
             "reconnect_interval": self.reconnect_interval.get(),
             "reconnect_attempts": self.reconnect_attempts.get(),
@@ -925,3 +996,4 @@ if __name__ == "__main__":
         
     except Exception as e:
         manejar_error_global(type(e), e, e.__traceback__)
+        

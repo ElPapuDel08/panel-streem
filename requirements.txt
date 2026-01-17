@@ -16,3 +16,5 @@ python-vlc>=3.0.20
 
 # === UTILIDADES ===
 requests>=2.31.0  # Para validación de usuario (opcional)
+
+pycaw
