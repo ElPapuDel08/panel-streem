@@ -1,8 +1,11 @@
 TikTok
 ├── venv/                   # entorno virtual
-├── cache                   # cache para carga rapida (sin uso)
+├── cache                   # cache para carga rapida (sin uso aun)
 │   └── .
 ├── core/
+│   ├── ui/
+│   │   ├── __init__.py
+│   │   └── panel.py        # extencion del main
 │   ├── profile/
 │   │   └── config.json     # configuracion de perfil
 │   ├── content_tiktok.py   # tunel con TikTok
