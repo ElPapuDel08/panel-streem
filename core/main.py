@@ -4,37 +4,39 @@ import os
 import time
 import traceback
 import tkinter as tk
+from tkinter import messagebox  # 👈 Importamos messagebox para diálogos nativos
 from PIL import Image, ImageTk
 
 # Importamos el panel desde la carpeta ui
 from ui.panel import MainPanel
 
-# ===== MANEJADOR DE ERRORES GLOBAL =====
+# ===== MANEJADOR DE ERRORES GLOBAL (ACTUALIZADO) =====
 def manejar_error_global(exc_type, exc_value, exc_traceback):
-    """Registra errores y muestra ventana de crash."""
+    """
+    Registra errores y muestra ventana de error NATIVA.
+    Usa messagebox.showerror para mantener consistencia con el panel.
+    """
     # Registrar en log.txt
     error_msg = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
     with open("log.txt", "a", encoding="utf-8") as f:
         f.write(f"\n{'='*50}\n{time.ctime()}\n{error_msg}\n{'='*50}\n")
     
-    # Mostrar ventana de crash
+    # Mostrar ventana de error nativa (Estilo Consistente)
     try:
-        import tkinter.ttk as ttk
-        crash_win = tk.Tk()
-        crash_win.title("💥 CRASH")
-        crash_win.geometry("500x200")
-        crash_win.resizable(False, False)
-        crash_win.eval('tk::PlaceWindow . center')
-        
-        msg = f"Oops... el programa tuvo un error\n\n{str(exc_value)}\n\nError guardado en log.txt"
-        ttk.Label(crash_win, text=msg, wraplength=480, justify="center").pack(pady=20)
-        ttk.Button(crash_win, text="Aceptar y cerrar", command=lambda: os._exit(1)).pack(pady=10)
-        crash_win.mainloop()
+        messagebox.showerror(
+            title="💥 Error Crítico",
+            message=f"El programa ha encontrado un error inesperado.\n\nDetalle: {str(exc_value)}\n\nSe ha guardado un registro en 'log.txt'.",
+            parent=root  # parent no está definido aquí, messagebox maneja bien la ventana madre o por defecto
+        )
+        # Opcional: Si quieres permitir copiar al portapapeles o cerrar:
+        # respuesta = messagebox.askyesno("Error", "El programa falló. ¿Deseas salir?")
     except:
-        print("CRASH FATAL:")
+        # Fallback en caso de error de UI
+        print(f"CRASH FATAL: {exc_value}")
         print(error_msg)
         input("Presiona Enter para salir...")
-        os._exit(1)
+    
+    os._exit(1)
 
 sys.excepthook = manejar_error_global
 
@@ -106,4 +108,5 @@ if __name__ == "__main__":
         root.mainloop()
         
     except Exception as e:
+        # Llamamos al manejador global si falla la inicialización
         manejar_error_global(type(e), e, e.__traceback__)

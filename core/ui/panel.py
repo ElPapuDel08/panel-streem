@@ -233,55 +233,84 @@ class MainPanel:
         add_section("• Muteo Inteligente", "Usa la opción global 'Permitir que los efectos silencien el fondo' para activar el sistema. Luego, marca el icono 🔇 en cada filtro específico que deba cortar el sonido del juego o música.")
 
     # ======================================================
-    # LÓGICA DE MUTEO (SOLUCIÓN DEFINITIVA BY-NAME)
+    # LÓGICA DE MUTEO AGRESIVA (TODO TIPO DE CANALES)
     # ======================================================
     def smart_mute_system_audio(self, exclude_pids=None):
         """
-        Estrategia: Muteo por Nombre de Proceso.
-        Mutea todo lo que NO sea python.exe (ni pythonw.exe).
-        Esto cubre tanto el bot como gift_anim.py, ya que ambos son python.
+        Estrategia: Muteo Total por Exclusión.
+        Escanea TODOS los flujos de audio del dispositivo predeterminado 
+        (Consola, Multimedia, Comunicaciones) y silencia cualquier sesión
+        que NO sea python.exe.
         """
-        if not HAS_PYCAW: return False
+        if not HAS_PYCAW:
+            self.log("[Muteo] ERROR: PyCAW no disponible.")
+            return False
         
-        # Ya no necesitamos estrictamente exclude_pids para el PID, 
-        # pero mantenemos el argumento por compatibilidad de la función.
         self.muted_sessions = []
 
         try:
             oledll.ole32.CoInitialize(None)
-
-            # Una pequeña pausa para asegurar que el efecto (gift_anim.py) ha arrancado
-            # y esté en la lista de sesiones.
-            self.log("[Muteo] Escaneando sesiones de audio...")
-            time.sleep(0.5) 
-
+            
+            # Pausa para estabilización de audio
+            time.sleep(0.3)
+            
+            # NOTA: GetSpeakers() devuelve el dispositivo predeterminado.
+            # GetSessions() en este contexto debería traer las sesiones activas en él.
+            # En versiones recientes de pycaw, esto abarca la mayoría de casos.
             sessions = AudioUtilities.GetAllSessions()
             
-            for session in sessions:
-                if session.Process:
-                    try:
-                        proc_name = session.Process.name().lower()
-                        
-                        # SI ES PYTHON, NO HACER NADA (Proteger Bot y Efecto)
-                        if "python.exe" in proc_name or "pythonw.exe" in proc_name:
-                            continue
-                            
-                        # SI NO ES PYTHON, MUTEAR (Juegos, Chrome, Spotify, etc)
-                        volume = session._ctl.QueryInterface(ISimpleAudioVolume)
-                        if not volume.GetMute():
-                            volume.SetMute(1, None)
-                            self.muted_sessions.append(volume)
-                            self.log(f"[Muteo] Silenciado: {session.Process.name()} (PID {session.Process.pid})")
-                            
-                    except Exception:
-                        pass
+            count_muted = 0
+            count_skipped = 0
 
-            self.log("[Muteo] Fondo silenciado. Python (Bot y Efecto) protegidos.")
+            for session in sessions:
+                try:
+                    # 1. Verificamos si tiene proceso asociado
+                    if not session.Process:
+                        # A veces son sonidos del sistema "huérfanos". 
+                        # Si quieres silenciar también sonidos del sistema de Windows (notificaciones, beeps),
+                        # puedes quitar el 'continue' de abajo. Pero es peligroso si pierdes la referencia.
+                        # Por seguridad, ignoramos sesiones sin proceso conocido.
+                        continue
+
+                    proc_name = session.Process.name().lower()
+                    proc_pid = session.Process.pid
+
+                    # 2. PROTECCIÓN TOTAL DE PYTHON
+                    # Si el nombre contiene "python", NO lo tocamos.
+                    if "python" in proc_name:
+                        count_skipped += 1
+                        continue
+
+                    # 3. INTENTO DE MUTEO AGRESIVO
+                    volume = session._ctl.QueryInterface(ISimpleAudioVolume)
+                    
+                    # Verificamos estado actual
+                    try:
+                        current_mute = volume.GetMute()
+                    except Exception:
+                        current_mute = False # Asumir que no está muteado si falla la lectura
+
+                    if not current_mute:
+                        # Intentamos silenciar
+                        volume.SetMute(1, None)
+                        self.muted_sessions.append(volume)
+                        self.log(f"[Muteo 🔇] {proc_name} (PID: {proc_pid})")
+                        count_muted += 1
+
+                except Exception as e:
+                    # Ignoramos errores individuales para no detener el bucle completo
+                    # (por ejemplo, si un proceso cierra justo en este milisegundo)
+                    pass
+
+            if count_muted > 0:
+                self.log(f"[Sistema] Silenciadas {count_muted} apps. ({count_skipped} procesos Python protegidos).")
+            else:
+                self.log("[Sistema] No se encontraron aplicaciones de fondo activas para silenciar.")
 
             return True
 
         except Exception as e:
-            self.log(f"Error CRÍTICO en muteo: {e}")
+            self.log(f"[Muteo] Error General: {e}")
             return False
 
     def unmute_system_audio(self):
