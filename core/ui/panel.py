@@ -11,6 +11,7 @@ from queue import Queue
 import subprocess
 import sys
 import traceback
+import re
 from tkinter import messagebox
 
 # Importación del scraper
@@ -30,7 +31,8 @@ class MainPanel:
     def __init__(self, root):
         self.root = root
         self.root.title("TikTok Live Bot - Pro")
-        self.root.geometry("600x530")
+        self.root.geometry("650x600")
+        self.root.configure(bg="#f0f0f0")
 
         self.queue = Queue()
         self.is_running = False
@@ -51,8 +53,9 @@ class MainPanel:
             "voice_chat": True,
             "voice_follow": True,
             "voice_gift": True,
+            "read_emojis": True,
             "filters_enabled": True,
-            "allow_effects_mute": True,  # 👈 NUEVA OPCIÓN GLOBAL
+            "allow_effects_mute": True,
             "filtros": [],
             "eventos": ["Doughnut"],
             "reconnect_interval": 5,
@@ -62,13 +65,14 @@ class MainPanel:
         }
 
         self.load_config()
+        self.setup_styles()
 
         # Variables Tkinter
         self.voice_chat = tk.BooleanVar(value=self.config_data["voice_chat"])
         self.voice_follow = tk.BooleanVar(value=self.config_data["voice_follow"])
         self.voice_gift = tk.BooleanVar(value=self.config_data["voice_gift"])
+        self.read_emojis = tk.BooleanVar(value=self.config_data.get("read_emojis", True))
         self.filters_enabled = tk.BooleanVar(value=self.config_data["filters_enabled"])
-        # Usamos una variable global para el switch principal, y lógica interna para filtros
         self.allow_effects_mute = tk.BooleanVar(value=self.config_data.get("allow_effects_mute", True))
 
         # Filtros y UI
@@ -83,25 +87,53 @@ class MainPanel:
         threading.Thread(target=self.voice_processor, daemon=True).start()
 
     # ======================================================
+    # ESTILOS VISUALES PRO
+    # ======================================================
+    def setup_styles(self):
+        self.style = ttk.Style()
+        self.style.theme_use('clam')
+        
+        bg_color = "#f0f0f0"
+        card_bg = "#ffffff"
+        text_fg = "#2c3e50"
+        
+        self.style.configure("TFrame", background=bg_color)
+        self.style.configure("TLabel", background=bg_color, font=("Segoe UI", 9), foreground=text_fg)
+        self.style.configure("Header.TLabel", font=("Segoe UI", 11, "bold"), foreground=text_fg)
+        self.style.configure("TCheckbutton", background=bg_color, font=("Segoe UI", 9))
+        self.style.configure("TRadiobutton", background=bg_color, font=("Segoe UI", 9))
+        
+        self.style.configure("TButton", font=("Segoe UI", 9, "bold"), padding=5, background="#e0e0e0")
+        self.style.map("TButton", background=[("active", "#d0d0d0")])
+        
+        self.style.configure("TNotebook", background=bg_color, borderwidth=0)
+        self.style.configure("TNotebook.Tab", background="#e0e0e0", padding=[15, 8], font=("Segoe UI", 10))
+        self.style.map("TNotebook.Tab", background=[("selected", "#ffffff")])
+        
+        self.style.configure("TLabelFrame", background=card_bg, foreground=text_fg, borderwidth=1, relief="solid")
+        self.style.configure("TLabelFrame.Label", background="#eef2f5", foreground=text_fg, font=("Segoe UI", 10, "bold"))
+
+    # ======================================================
     # UI SETUP
     # ======================================================
     def setup_ui(self):
         container = ttk.Frame(self.root)
-        container.pack(fill="both", expand=True)
+        container.pack(fill="both", expand=True, padx=10, pady=10)
+        
         self.notebook = ttk.Notebook(container)
-        self.notebook.pack(fill="both", expand=True, padx=10, pady=10)
+        self.notebook.pack(fill="both", expand=True)
         self.create_tabs()
 
     def create_tabs(self):
         self.tab_control = self.create_scrollable_tab("Control")
-        self.tab_config = self.create_scrollable_tab("Config")
+        self.tab_config = self.create_scrollable_tab("Configuración")
         self.tab_filtros = self.create_scrollable_tab("Filtros")
         self.tab_info = self.create_scrollable_tab("Info")
 
-        self.notebook.add(self.tab_control, text="Control")
-        self.notebook.add(self.tab_config, text="Config")
-        self.notebook.add(self.tab_filtros, text="Filtros")
-        self.notebook.add(self.tab_info, text="Info")
+        self.notebook.add(self.tab_control, text="  📺 Control  ")
+        self.notebook.add(self.tab_config, text="  ⚙️ Configuración  ")
+        self.notebook.add(self.tab_filtros, text="  🎭 Filtros  ")
+        self.notebook.add(self.tab_info, text="  ℹ️ Info  ")
 
         self.setup_control_tab()
         self.setup_config_tab()
@@ -113,88 +145,136 @@ class MainPanel:
 
     def setup_control_tab(self):
         parent = self.tab_control
-        parent.config(padding="20")
+        card = tk.Frame(parent, bg="#ffffff", bd=1, relief="solid")
+        card.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        inner = tk.Frame(card, bg="#ffffff")
+        inner.pack(fill="both", expand=True, padx=15, pady=15)
 
-        ttk.Label(parent, text="Usuario de TikTok:").pack(anchor="w")
-        self.ent_user = ttk.Entry(parent, width=50)
+        lbl_user = tk.Label(inner, text="Usuario de TikTok:", bg="#ffffff", font=("Segoe UI", 11, "bold"), fg="#2c3e50")
+        lbl_user.pack(anchor="w", pady=(0, 5))
+        
+        self.ent_user = tk.Entry(inner, font=("Segoe UI", 10), bg="#f9f9f9", bd=1)
         self.ent_user.insert(0, self.config_data["usuario_tiktok"])
-        self.ent_user.pack(pady=5)
+        self.ent_user.pack(fill="x", pady=(0, 15))
 
-        frame_btns = ttk.Frame(parent)
-        frame_btns.pack(pady=10)
+        frame_btns = tk.Frame(inner, bg="#ffffff")
+        frame_btns.pack(pady=5)
 
-        self.btn_toggle = ttk.Button(frame_btns, text="Iniciar Live", command=self.toggle_bot)
+        self.btn_toggle = ttk.Button(frame_btns, text="▶ INICIAR LIVE", command=self.toggle_bot, width=15)
         self.btn_toggle.pack(side="left", padx=5)
 
-        self.btn_test = ttk.Button(frame_btns, text="Pre-visualizador", command=self.toggle_test_mode)
+        self.btn_test = ttk.Button(frame_btns, text="🧪 PRE-VISUALIZADOR", command=self.toggle_test_mode, width=15)
         self.btn_test.pack(side="left", padx=5)
 
-        self.log_txt = tk.Text(parent, height=10, width=60, state='disabled', font=("Segoe UI", 9))
-        self.log_txt.pack(pady=10, fill="x")
+        lbl_log = tk.Label(inner, text="📜 Registro de Eventos:", bg="#ffffff", font=("Segoe UI", 11, "bold"), fg="#2c3e50")
+        lbl_log.pack(anchor="w", pady=(15, 5))
+        
+        log_frame = tk.Frame(inner, bg="#1e1e1e", bd=1, relief="sunken")
+        log_frame.pack(fill="both", expand=True)
+        
+        self.log_txt = tk.Text(log_frame, height=10, width=60, state='disabled', font=("Consolas", 9), bg="#1e1e1e", fg="#00ff00", insertbackground="white", bd=0)
+        self.log_txt.pack(fill="both", expand=True, padx=5, pady=5)
 
     def setup_config_tab(self):
         parent = self.tab_config
-        parent.config(padding="20")
+        canvas = tk.Canvas(parent, highlightthickness=0, bg="#f0f0f0")
+        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
 
-        ttk.Label(parent, text="Delay (seg):").grid(row=0, column=0, sticky="w", pady=2)
-        self.delay_val = tk.DoubleVar(value=self.config_data["delay"])
-        ttk.Spinbox(parent, from_=0, to=10, increment=0.5, width=8, textvariable=self.delay_val).grid(row=0, column=1, pady=2)
+        scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
 
-        self.skip_delay = tk.BooleanVar(value=self.config_data["skip_delay_priority"])
-        ttk.Checkbutton(parent, text="Prioridad Regalos / Follows", variable=self.skip_delay).grid(row=1, column=0, columnspan=2, sticky="w", pady=2)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
 
-        ttk.Label(parent, text="Msg Follow:").grid(row=2, column=0, sticky="w", pady=2)
-        self.ent_msg_follow = ttk.Entry(parent, width=40)
+        main_content = ttk.Frame(scrollable_frame)
+        main_content.pack(fill="x", padx=10, pady=10)
+
+        # --- SECCIÓN 1: CONFIGURACIÓN DE MENSAJES ---
+        frame_msg = ttk.LabelFrame(main_content, text=" Mensajes ")
+        frame_msg.pack(fill="x", pady=5)
+
+        ttk.Label(frame_msg, text="Mensaje Follow:").grid(row=0, column=0, sticky="w", padx=5, pady=2)
+        self.ent_msg_follow = ttk.Entry(frame_msg, width=50, font=("Segoe UI", 9))
         self.ent_msg_follow.insert(0, self.config_data["msg_follow"])
-        self.ent_msg_follow.grid(row=3, column=0, columnspan=2, pady=2)
+        self.ent_msg_follow.grid(row=1, column=0, columnspan=2, sticky="ew", padx=5, pady=(0, 10))
 
-        ttk.Label(parent, text="Msg Gift:").grid(row=4, column=0, sticky="w", pady=2)
-        self.ent_msg_gift = ttk.Entry(parent, width=40)
+        ttk.Label(frame_msg, text="Mensaje Gift:").grid(row=2, column=0, sticky="w", padx=5, pady=2)
+        self.ent_msg_gift = ttk.Entry(frame_msg, width=50, font=("Segoe UI", 9))
         self.ent_msg_gift.insert(0, self.config_data["msg_gift"])
-        self.ent_msg_gift.grid(row=5, column=0, columnspan=2, pady=2)
+        self.ent_msg_gift.grid(row=3, column=0, columnspan=2, sticky="ew", padx=5, pady=(0, 10))
 
-        ttk.Separator(parent, orient="horizontal").grid(row=6, column=0, columnspan=2, sticky="ew", pady=10)
-        ttk.Checkbutton(parent, text="🔊 Leer CHAT", variable=self.voice_chat).grid(row=7, column=0, sticky="w", pady=2)
-        ttk.Checkbutton(parent, text="🔊 Leer FOLLOW", variable=self.voice_follow).grid(row=8, column=0, sticky="w", pady=2)
-        ttk.Checkbutton(parent, text="🔊 Leer GIFT", variable=self.voice_gift).grid(row=9, column=0, sticky="w", pady=2)
-        ttk.Checkbutton(parent, text="🎬 Activar FILTROS", variable=self.filters_enabled).grid(row=10, column=0, sticky="w", pady=2)
+        ttk.Label(frame_msg, text="Delay (segundos):").grid(row=4, column=0, sticky="w", padx=5, pady=2)
+        self.delay_val = tk.DoubleVar(value=self.config_data["delay"])
+        ttk.Spinbox(frame_msg, from_=0, to=10, increment=0.5, width=10, textvariable=self.delay_val).grid(row=4, column=1, sticky="e", padx=5, pady=2)
         
-        # 👇 NUEVA OPCIÓN GLOBAL CONTROLADA
-        chk_mute_global = ttk.Checkbutton(parent, text="🔇 Permitir que los efectos silencien el fondo", variable=self.allow_effects_mute)
-        chk_mute_global.grid(row=11, column=0, columnspan=2, sticky="w", pady=2)
-        
-        ttk.Separator(parent, orient="horizontal").grid(row=12, column=0, columnspan=2, sticky="ew", pady=10)
-        
-        ttk.Label(parent, text="Reconexión (seg):").grid(row=13, column=0, sticky="w", pady=2)
-        self.reconnect_interval = tk.IntVar(value=self.config_data["reconnect_interval"])
-        ttk.Spinbox(parent, from_=1, to=60, width=8, textvariable=self.reconnect_interval).grid(row=13, column=1, pady=2)
+        self.skip_delay = tk.BooleanVar(value=self.config_data["skip_delay_priority"])
+        ttk.Checkbutton(frame_msg, text="Priorizar Regalos/Follows (Saltar delay)", variable=self.skip_delay).grid(row=5, column=0, columnspan=2, sticky="w", padx=5, pady=5)
 
-        ttk.Label(parent, text="Intentos máximos:").grid(row=14, column=0, sticky="w", pady=2)
-        self.reconnect_attempts = tk.IntVar(value=self.config_data["reconnect_attempts"])
-        ttk.Spinbox(parent, from_=1, to=100, width=8, textvariable=self.reconnect_attempts).grid(row=14, column=1, pady=2)
+        # --- SECCIÓN 2: LECTURA DE VOZ ---
+        frame_voice = ttk.LabelFrame(main_content, text=" Lectura de Voz (TTS) ")
+        frame_voice.pack(fill="x", pady=10)
 
-        ttk.Separator(parent, orient="horizontal").grid(row=15, column=0, columnspan=2, sticky="ew", pady=10)
+        grid_voice = ttk.Frame(frame_voice)
+        grid_voice.pack(fill="x", padx=5, pady=5)
         
-        ttk.Label(parent, text="Volumen TTS (%):").grid(row=16, column=0, sticky="w", pady=2)
+        ttk.Checkbutton(grid_voice, text="🔊 Leer Chat", variable=self.voice_chat).grid(row=0, column=0, sticky="w", padx=5)
+        ttk.Checkbutton(grid_voice, text="🔊 Leer Seguidores", variable=self.voice_follow).grid(row=0, column=1, sticky="w", padx=5)
+        ttk.Checkbutton(grid_voice, text="🔊 Leer Regalos", variable=self.voice_gift).grid(row=1, column=0, sticky="w", padx=5)
+        ttk.Checkbutton(grid_voice, text="😎 Leer Emojis", variable=self.read_emojis).grid(row=1, column=1, sticky="w", padx=5)
+
+        # --- SECCIÓN 3: VOLUMEN ---
+        frame_vol = ttk.LabelFrame(main_content, text=" Control de Volumen ")
+        frame_vol.pack(fill="x", pady=5)
+
+        ttk.Label(frame_vol, text="Volumen Voz (TTS):").grid(row=0, column=0, sticky="w", padx=5, pady=2)
         self.volume_tts_val = tk.IntVar(value=self.config_data["volume_tts"])
-        ttk.Spinbox(parent, from_=0, to=100, width=6, textvariable=self.volume_tts_val).grid(row=16, column=1, pady=2, sticky="w")
-        self.volume_tts_slider = ttk.Scale(parent, from_=0, to=100, orient="horizontal", variable=self.volume_tts_val, length=150)
-        self.volume_tts_slider.grid(row=17, column=1, pady=2, sticky="w")
+        vol_tts_scale = ttk.Scale(frame_vol, from_=0, to=100, orient="horizontal", variable=self.volume_tts_val)
+        vol_tts_scale.grid(row=0, column=1, sticky="ew", padx=5, pady=2)
 
-        ttk.Label(parent, text="Volumen efectos (%):").grid(row=18, column=0, sticky="w", pady=2)
+        ttk.Label(frame_vol, text="Volumen Efectos:").grid(row=1, column=0, sticky="w", padx=5, pady=2)
         self.volume_effects_val = tk.IntVar(value=self.config_data["volume_effects"])
-        ttk.Spinbox(parent, from_=0, to=100, width=6, textvariable=self.volume_effects_val).grid(row=18, column=1, pady=2, sticky="w")
-        self.volume_effects_slider = ttk.Scale(parent, from_=0, to=100, orient="horizontal", variable=self.volume_effects_val, length=150)
-        self.volume_effects_slider.grid(row=19, column=1, pady=2, sticky="w")
+        vol_eff_scale = ttk.Scale(frame_vol, from_=0, to=100, orient="horizontal", variable=self.volume_effects_val)
+        vol_eff_scale.grid(row=1, column=1, sticky="ew", padx=5, pady=2)
+        
+        frame_vol.columnconfigure(1, weight=1)
+
+        # --- SECCIÓN 4: SISTEMA Y CONEXIÓN ---
+        frame_sys = ttk.LabelFrame(main_content, text=" Sistema y Conexión ")
+        frame_sys.pack(fill="x", pady=5)
+
+        grid_sys = ttk.Frame(frame_sys)
+        grid_sys.pack(fill="x", padx=5, pady=5)
+
+        ttk.Checkbutton(grid_sys, text="🎬 Activar Filtros de Animación", variable=self.filters_enabled).grid(row=0, column=0, sticky="w", padx=5)
+        ttk.Checkbutton(grid_sys, text="🔇 Silenciar Fondo al reproducir efectos", variable=self.allow_effects_mute).grid(row=1, column=0, sticky="w", padx=5)
+
+        ttk.Label(grid_sys, text="Reconexión (seg):").grid(row=2, column=0, sticky="w", padx=5, pady=2)
+        self.reconnect_interval = tk.IntVar(value=self.config_data["reconnect_interval"])
+        ttk.Spinbox(grid_sys, from_=1, to=60, width=5, textvariable=self.reconnect_interval).grid(row=2, column=1, sticky="e", padx=5, pady=2)
+
+        ttk.Label(grid_sys, text="Intentos máximos:").grid(row=3, column=0, sticky="w", padx=5, pady=2)
+        self.reconnect_attempts = tk.IntVar(value=self.config_data["reconnect_attempts"])
+        ttk.Spinbox(grid_sys, from_=1, to=100, width=5, textvariable=self.reconnect_attempts).grid(row=3, column=1, sticky="e", padx=5, pady=2)
 
     def setup_filtros_tab(self):
         parent = self.tab_filtros
         parent.config(padding="10")
 
-        self.btn_add_filtro = ttk.Button(parent, text="[ + ] Agregar Filtro", command=self.agregar_filtro_slot)
-        self.btn_add_filtro.pack(anchor="w", pady=5)
+        # Marco para los botones de acción superior
+        frame_actions = ttk.Frame(parent)
+        frame_actions.pack(fill="x", pady=5)
 
-        self.canvas_filtros = tk.Canvas(parent, highlightthickness=0)
+        self.btn_add_filtro = ttk.Button(frame_actions, text="[ + ] AGREGAR FILTRO", command=self.agregar_filtro_slot)
+        self.btn_add_filtro.pack(side="left", padx=5)
+        
+        # 👇 NUEVO BOTÓN DE RECARGA
+        self.btn_reload_filtros = ttk.Button(frame_actions, text="🔄 RECARGAR EFECTOS", command=self.recargar_filtros)
+        self.btn_reload_filtros.pack(side="left", padx=5)
+
+        self.canvas_filtros = tk.Canvas(parent, highlightthickness=0, bg="#f0f0f0")
         self.scrollbar_filtros = ttk.Scrollbar(parent, orient="vertical", command=self.canvas_filtros.yview)
         self.frame_filtros = ttk.Frame(self.canvas_filtros)
 
@@ -207,7 +287,7 @@ class MainPanel:
         self.frame_filtros.bind("<Configure>", self.toggle_scroll_filtros)
 
         if not self.filtros_disponibles:
-            ttk.Label(parent, text="⚠️ No se encontraron efectos en gift_anim.py", foreground="red").pack(pady=5)
+            ttk.Label(parent, text="⚠️ No se encontraron efectos en gift_anim.py", foreground="#c0392b", font=("Segoe UI", 10, "bold")).pack(pady=20)
 
     def toggle_scroll_filtros(self, event=None):
         if self.frame_filtros.winfo_reqheight() > self.canvas_filtros.winfo_height():
@@ -218,30 +298,26 @@ class MainPanel:
     def setup_info_tab(self):
         parent = self.tab_info
         parent.config(padding="20")
-        title = ttk.Label(parent, text="ℹ️ TikTok Live Bot - Pro", font=("Segoe UI", 14, "bold"), foreground="#2c3e50")
-        title.pack(anchor="w", pady=(0, 15))
+        
+        title = ttk.Label(parent, text="ℹ️ TikTok Live Bot - Pro", style="Header.TLabel")
+        title.pack(anchor="w", pady=(0, 20))
         
         content_frame = ttk.Frame(parent)
         content_frame.pack(fill="x")
 
         def add_section(title, body):
-            section = ttk.Frame(content_frame)
-            section.pack(fill="x", pady=(0, 12))
-            ttk.Label(section, text=title, font=("Segoe UI", 11, "bold"), foreground="#3498db").pack(anchor="w")
-            ttk.Label(section, text=body, font=("Segoe UI", 10), wraplength=500, justify="left").pack(anchor="w", pady=(5, 0))
+            section = ttk.LabelFrame(content_frame, text=f" {title} ")
+            section.pack(fill="x", pady=(0, 15))
+            lbl = ttk.Label(section, text=body, font=("Segoe UI", 10), wraplength=500, justify="left")
+            lbl.pack(anchor="w", padx=10, pady=10)
 
         add_section("• Muteo Inteligente", "Usa la opción global 'Permitir que los efectos silencien el fondo' para activar el sistema. Luego, marca el icono 🔇 en cada filtro específico que deba cortar el sonido del juego o música.")
+        add_section("• Gestión de Efectos", "Si agregas nuevos sonidos o efectos a las carpetas, usa el botón 'RECARGAR EFECTOS' para actualizar la lista sin reiniciar el programa.")
 
     # ======================================================
-    # LÓGICA DE MUTEO AGRESIVA (TODO TIPO DE CANALES)
+    # LÓGICA DE MUTEO
     # ======================================================
     def smart_mute_system_audio(self, exclude_pids=None):
-        """
-        Estrategia: Muteo Total por Exclusión.
-        Escanea TODOS los flujos de audio del dispositivo predeterminado 
-        (Consola, Multimedia, Comunicaciones) y silencia cualquier sesión
-        que NO sea python.exe.
-        """
         if not HAS_PYCAW:
             self.log("[Muteo] ERROR: PyCAW no disponible.")
             return False
@@ -250,13 +326,7 @@ class MainPanel:
 
         try:
             oledll.ole32.CoInitialize(None)
-            
-            # Pausa para estabilización de audio
             time.sleep(0.3)
-            
-            # NOTA: GetSpeakers() devuelve el dispositivo predeterminado.
-            # GetSessions() en este contexto debería traer las sesiones activas en él.
-            # En versiones recientes de pycaw, esto abarca la mayoría de casos.
             sessions = AudioUtilities.GetAllSessions()
             
             count_muted = 0
@@ -264,53 +334,33 @@ class MainPanel:
 
             for session in sessions:
                 try:
-                    # 1. Verificamos si tiene proceso asociado
-                    if not session.Process:
-                        # A veces son sonidos del sistema "huérfanos". 
-                        # Si quieres silenciar también sonidos del sistema de Windows (notificaciones, beeps),
-                        # puedes quitar el 'continue' de abajo. Pero es peligroso si pierdes la referencia.
-                        # Por seguridad, ignoramos sesiones sin proceso conocido.
-                        continue
-
+                    if not session.Process: continue
                     proc_name = session.Process.name().lower()
                     proc_pid = session.Process.pid
 
-                    # 2. PROTECCIÓN TOTAL DE PYTHON
-                    # Si el nombre contiene "python", NO lo tocamos.
                     if "python" in proc_name:
                         count_skipped += 1
                         continue
 
-                    # 3. INTENTO DE MUTEO AGRESIVO
                     volume = session._ctl.QueryInterface(ISimpleAudioVolume)
-                    
-                    # Verificamos estado actual
-                    try:
-                        current_mute = volume.GetMute()
-                    except Exception:
-                        current_mute = False # Asumir que no está muteado si falla la lectura
+                    try: current_mute = volume.GetMute()
+                    except: current_mute = False
 
                     if not current_mute:
-                        # Intentamos silenciar
                         volume.SetMute(1, None)
                         self.muted_sessions.append(volume)
-                        self.log(f"[Muteo 🔇] {proc_name} (PID: {proc_pid})")
+                        self.log(f"[Muteo 🔇] {proc_name}")
                         count_muted += 1
-
-                except Exception as e:
-                    # Ignoramos errores individuales para no detener el bucle completo
-                    # (por ejemplo, si un proceso cierra justo en este milisegundo)
-                    pass
+                except: pass
 
             if count_muted > 0:
-                self.log(f"[Sistema] Silenciadas {count_muted} apps. ({count_skipped} procesos Python protegidos).")
+                self.log(f"[Sistema] Silenciadas {count_muted} apps.")
             else:
-                self.log("[Sistema] No se encontraron aplicaciones de fondo activas para silenciar.")
-
+                self.log("[Sistema] No se encontraron apps de fondo activas.")
             return True
 
         except Exception as e:
-            self.log(f"[Muteo] Error General: {e}")
+            self.log(f"[Muteo] Error: {e}")
             return False
 
     def unmute_system_audio(self):
@@ -322,24 +372,18 @@ class MainPanel:
                     try: volume.SetMute(0, None)
                     except: pass
                 self.muted_sessions = []
-        except Exception as e:
-            self.log("Error desmuteando:", e)
+        except: pass
 
     # ======================================================
-    # LÓGICA DE EJECUCIÓN DE FILTROS
+    # EJECUCIÓN DE FILTROS
     # ======================================================
     def ejecutar_filtro(self, filtro, duracion, repeticiones=1, apply_mute=False):
         if not os.path.exists("core/gift_anim.py"): return
-
-        # Lista de PIDs a proteger (El bot + El efecto)
         exclude_pids = [os.getpid()]
-        
         if duracion.isdigit(): dur = int(duracion)
         else: dur = 15
             
         volumen = self.volume_effects_val.get()
-        
-        # Solo si está activo globalmente Y en el filtro individual
         should_mute = self.allow_effects_mute.get() and apply_mute
 
         try:
@@ -349,29 +393,24 @@ class MainPanel:
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL
                 )
-                effect_pid = proc.pid
-                
                 if should_mute and i == 0:
-                    # Pasamos la lista completa (Bot + Efecto) para que no mutee el efecto
                     self.smart_mute_system_audio(exclude_pids=exclude_pids)
-
                 proc.wait()
                 if repeticiones > 1: time.sleep(0.1)
             
             if should_mute:
                 time.sleep(0.2)
                 self.unmute_system_audio()
-
         except Exception as e:
             if should_mute: self.unmute_system_audio()
-            print("Error al ejecutar filtro:", e)
+            print("Error filtro:", e)
 
     # ======================================================
-    # PRE-VISUALIZADOR
+    # MODO TEST
     # ======================================================
     def toggle_test_mode(self):
         if not self.is_testing:
-            confirm = messagebox.askyesno("Modo Prueba", "¿Estás seguro de que quieres entrar en modo testing?\n\nEsto simulará un live usando la configuración actual.")
+            confirm = messagebox.askyesno("Modo Prueba", "¿Entrar en modo simulación?")
             if confirm: self.start_test_mode()
         else: self.stop_test_mode()
 
@@ -379,7 +418,7 @@ class MainPanel:
         self.is_testing = True
         self.is_running = True
         self.deshabilitar_configuracion()
-        self.btn_test.config(text="Detener Test")
+        self.btn_test.config(text="DETENER TEST")
         self.btn_toggle.config(state="disabled")
         self.update_log(">>> MODO TEST INICIADO")
         self.open_test_window()
@@ -393,7 +432,7 @@ class MainPanel:
             self.test_window = None
         self.clear_queue()
         self.habilitar_configuracion()
-        self.btn_test.config(text="Pre-visualizador")
+        self.btn_test.config(text="🧪 PRE-VISUALIZADOR")
         self.btn_toggle.config(state="normal")
         self.update_log(">>> MODO TEST DETENIDO")
 
@@ -402,9 +441,10 @@ class MainPanel:
         self.test_window = tk.Toplevel(self.root)
         self.test_window.title("Panel de Simulación")
         self.test_window.geometry("450x650")
+        self.test_window.configure(bg="#f0f0f0")
         self.test_window.protocol("WM_DELETE_WINDOW", self.stop_test_mode)
 
-        main_canvas = tk.Canvas(self.test_window, highlightthickness=0)
+        main_canvas = tk.Canvas(self.test_window, highlightthickness=0, bg="#f0f0f0")
         main_scrollbar = ttk.Scrollbar(self.test_window, orient="vertical", command=main_canvas.yview)
         scrollable_frame = ttk.Frame(main_canvas)
 
@@ -415,20 +455,23 @@ class MainPanel:
         main_canvas.pack(side="left", fill="both", expand=True)
         main_scrollbar.pack(side="right", fill="y")
 
-        frame_chat = ttk.LabelFrame(scrollable_frame, text="💬 Simular Chat", padding=10)
+        frame_chat = ttk.LabelFrame(scrollable_frame, text=" Simular Chat ")
         frame_chat.pack(fill="x", padx=10, pady=5)
 
-        ttk.Label(frame_chat, text="Usuario:").grid(row=0, column=0, sticky="w")
-        ent_test_user = ttk.Entry(frame_chat, width=20)
+        grid_chat = ttk.Frame(frame_chat)
+        grid_chat.pack(padx=5, pady=5)
+
+        ttk.Label(grid_chat, text="Usuario:").grid(row=0, column=0, sticky="w")
+        ent_test_user = ttk.Entry(grid_chat, width=20)
         ent_test_user.insert(0, "UsuarioTest")
         ent_test_user.grid(row=0, column=1, pady=2)
 
-        ttk.Label(frame_chat, text="Mensaje:").grid(row=1, column=0, sticky="w")
-        ent_test_msg = ttk.Entry(frame_chat, width=30)
+        ttk.Label(grid_chat, text="Mensaje:").grid(row=1, column=0, sticky="w")
+        ent_test_msg = ttk.Entry(grid_chat, width=30)
         ent_test_msg.grid(row=1, column=1, pady=2)
         ent_test_msg.bind("<Return>", lambda e: self.sim_send_chat(ent_test_user, ent_test_msg))
 
-        ttk.Button(frame_chat, text="Enviar", command=lambda: self.sim_send_chat(ent_test_user, ent_test_msg)).grid(row=2, column=0, columnspan=2, pady=5)
+        ttk.Button(grid_chat, text="Enviar", command=lambda: self.sim_send_chat(ent_test_user, ent_test_msg)).grid(row=2, column=0, columnspan=2, pady=5)
 
         frame_events = ttk.Frame(scrollable_frame)
         frame_events.pack(fill="x", padx=10, pady=5)
@@ -457,7 +500,7 @@ class MainPanel:
             entry_msg.delete(0, tk.END)
 
     # ======================================================
-    # LOGICA GENERAL Y AUXILIARES
+    # LÓGICA AUXILIAR
     # ======================================================
     def registrar_evento_gift(self, nombre_gift):
         if not nombre_gift or nombre_gift in ("follow", "all-gift"): return
@@ -465,33 +508,49 @@ class MainPanel:
             self.config_data["eventos"].append(nombre_gift)
             self.config_data["eventos"].sort()
             self.guardar_configuracion_actual()
-            print(f"🆕 Nuevo regalo registrado: {nombre_gift}")
 
     def deshabilitar_configuracion(self):
         self.ent_user.config(state="disabled")
         if not self.is_testing: self.btn_test.config(state="disabled")
+        # Deshabilitar configuración principal
         for child in self.tab_config.winfo_children():
             if isinstance(child, (ttk.Entry, ttk.Spinbox, ttk.Checkbutton, ttk.Scale)):
                 try: child.config(state="disabled")
                 except: pass
+        
+        # Deshabilitar controles de filtros (Botones de agregar/recargar/borrar)
         self.btn_add_filtro.config(state="disabled")
+        if hasattr(self, 'btn_reload_filtros'):
+            self.btn_reload_filtros.config(state="disabled")
+            
         for frame in self.frame_filtros.winfo_children():
             if isinstance(frame, ttk.Frame):
                 for widget in frame.winfo_children():
-                    if isinstance(widget, (ttk.Combobox, ttk.Entry)): widget.config(state="disabled")
+                    # Deshabilitar Combobox, Entries, Botones (Borrar) y Checkbuttons
+                    if isinstance(widget, (ttk.Button, ttk.Combobox, ttk.Entry, ttk.Checkbutton)):
+                        try: widget.config(state="disabled")
+                        except: pass
 
     def habilitar_configuracion(self):
         self.ent_user.config(state="normal")
         self.btn_test.config(state="normal")
+        # Habilitar configuración principal
         for child in self.tab_config.winfo_children():
             if isinstance(child, (ttk.Entry, ttk.Spinbox, ttk.Checkbutton, ttk.Scale)):
                 try: child.config(state="normal")
                 except: pass
+        
+        # Habilitar controles de filtros
         self.btn_add_filtro.config(state="normal")
+        if hasattr(self, 'btn_reload_filtros'):
+            self.btn_reload_filtros.config(state="normal")
+            
         for frame in self.frame_filtros.winfo_children():
             if isinstance(frame, ttk.Frame):
                 for widget in frame.winfo_children():
-                    if isinstance(widget, (ttk.Combobox, ttk.Entry)): widget.config(state="normal")
+                    if isinstance(widget, (ttk.Button, ttk.Combobox, ttk.Entry, ttk.Checkbutton)):
+                        try: widget.config(state="normal")
+                        except: pass
 
     def detectar_filtros(self):
         if not os.path.exists("core/gift_anim.py"): return []
@@ -502,6 +561,37 @@ class MainPanel:
         except: pass
         return []
 
+    # 👇 NUEVA FUNCIÓN PARA RECARGAR EFECTOS
+    def recargar_filtros(self):
+        self.log("[Sistema] Recargando lista de efectos...")
+        nuevos_efectos = self.detectar_filtros()
+        
+        if not nuevos_efectos:
+            self.log("[Sistema] No se encontraron efectos en gift_anim.py")
+            return
+            
+        self.filtros_disponibles = nuevos_efectos
+        
+        # Actualizar los dropdowns de los filtros existentes
+        actualizados = 0
+        for slot in self.filtros_slots:
+            try:
+                combo_widget = slot.get("combo_filtro")
+                if combo_widget:
+                    # Guardamos el valor actual
+                    valor_actual = combo_widget.get()
+                    # Actualizamos la lista de valores
+                    combo_widget['values'] = self.filtros_disponibles
+                    # Si el valor actual sigue existiendo, lo dejamos, si no, se queda el viejo visualmente pero es responsabilidad del usuario
+                    # O podríamos forzar al primero si no está:
+                    if valor_actual not in self.filtros_disponibles:
+                        combo_widget.current(0)
+                    actualizados += 1
+            except Exception as e:
+                print(f"Error actualizando filtro: {e}")
+                
+        self.log(f"[Sistema] Se detectaron {len(self.filtros_disponibles)} efectos disponibles y se actualizaron {actualizados} filtros.")
+
     def agregar_filtro_slot(self, ev_val="follow", filtro_val=None, duracion_val="5", mute_val=False):
         if not self.filtros_disponibles: return
         fila = ttk.Frame(self.frame_filtros)
@@ -510,25 +600,29 @@ class MainPanel:
         evento = tk.StringVar(value=ev_val)
         filtro = tk.StringVar(value=filtro_val or self.filtros_disponibles[0])
         duracion = tk.StringVar(value=duracion_val)
-        mute_var = tk.BooleanVar(value=mute_val) # 👈 Nueva variable individual
+        mute_var = tk.BooleanVar(value=mute_val)
         
         valores_eventos = ["follow", "all-gift"] + self.config_data["eventos"]
 
         ttk.Combobox(fila, values=valores_eventos, width=12, textvariable=evento, state="readonly").pack(side="left", padx=2)
-        ttk.Label(fila, text="hacer").pack(side="left")
-        ttk.Combobox(fila, values=self.filtros_disponibles, width=10, textvariable=filtro, state="readonly").pack(side="left", padx=2)
+        ttk.Label(fila, text="➔").pack(side="left")
+        
+        # Guardamos referencia del widget para poder actualizarlo al recargar
+        combo_filtro = ttk.Combobox(fila, values=self.filtros_disponibles, width=10, textvariable=filtro, state="readonly")
+        combo_filtro.pack(side="left", padx=2)
+        
         ttk.Label(fila, text="durante").pack(side="left")
         dur_entry = ttk.Entry(fila, width=4, textvariable=duracion)
         dur_entry.pack(side="left")
         ttk.Label(fila, text="s").pack(side="left")
         
-        # 👇 NUEVO CHECKBOX PARA MUTEAR FONDO
         chk_mute_fondo = ttk.Checkbutton(fila, text="🔇", variable=mute_var)
         chk_mute_fondo.pack(side="left", padx=5)
 
         slot_ref = {
             "evento": evento, "filtro": filtro, "duracion": duracion, 
-            "mute_var": mute_var, # Guardar referencia
+            "combo_filtro": combo_filtro, # 👈 Referencia añadida
+            "mute_var": mute_var, 
             "fila": fila, "dur_entry": dur_entry
         }
         self.filtros_slots.append(slot_ref)
@@ -536,6 +630,10 @@ class MainPanel:
         self.root.after(10, self.toggle_scroll_filtros)
 
     def eliminar_filtro_slot(self, slot_a_eliminar):
+        # Comprobar si está corriendo antes de eliminar (doble seguridad)
+        if self.is_running:
+            return 
+            
         if slot_a_eliminar in self.filtros_slots:
             self.filtros_slots.remove(slot_a_eliminar)
             slot_a_eliminar["fila"].destroy()
@@ -549,11 +647,11 @@ class MainPanel:
             duracion_str = slot["duracion"].get()
             if filtro not in self.filtros_disponibles: continue
             if not duracion_str.isdigit():
-                errores.append(f"Duración inválida para '{filtro}': '{duracion_str}' (debe ser número)")
+                errores.append(f"Duración inválida para '{filtro}': '{duracion_str}'")
                 continue
             duracion = int(duracion_str)
             if filtro in ("rebote", "boom") and duracion == 0:
-                errores.append(f"{filtro} = \"value invalid, minim is =>1\"")
+                errores.append(f"{filtro} = \"valor inválido, mínimo 1\"")
         return errores
 
     def mostrar_error_validacion(self, errores):
@@ -566,7 +664,7 @@ class MainPanel:
         x = self.root.winfo_x() + (self.root.winfo_width() // 2) - 200
         y = self.root.winfo_y() + (self.root.winfo_height() // 2) - 100
         error_win.geometry(f"+{x}+{y}")
-        ttk.Label(error_win, text="Se declaró un conflicto:\n" + "\n".join(errores) + "\n\nPor favor consulte en 'Info'", wraplength=380, justify="center").pack(pady=20)
+        ttk.Label(error_win, text="Se declaró un conflicto:\n" + "\n".join(errores), wraplength=380, justify="center").pack(pady=20)
         ttk.Button(error_win, text="Aceptar", command=error_win.destroy).pack(pady=10)
 
     def mostrar_error_usuario(self, mensaje):
@@ -580,10 +678,10 @@ class MainPanel:
         x = self.root.winfo_x() + (self.root.winfo_width() // 2) - 200
         y = self.root.winfo_y() + (self.root.winfo_height() // 2) - 75
         error_win.geometry(f"+{x}+{y}")
-        ttk.Label(error_win, text=f"🚨 {mensaje}\n\n• Verifica que el usuario exista\n• Asegúrate de que esté en vivo", justify="center", wraplength=380).pack(pady=20)
+        ttk.Label(error_win, text=f"🚨 {mensaje}", justify="center", wraplength=380).pack(pady=20)
         def aceptar():
             self.is_running = False
-            self.btn_toggle.config(text="Iniciar Live")
+            self.btn_toggle.config(text="▶ INICIAR LIVE")
             self.update_log(">>> BOT DETENIDO (usuario inválido)")
             self.habilitar_configuracion()
             error_win.destroy()
@@ -596,6 +694,7 @@ class MainPanel:
             "skip_delay_priority": self.skip_delay.get(), "msg_follow": self.ent_msg_follow.get(),
             "msg_gift": self.ent_msg_gift.get(), "voice_chat": self.voice_chat.get(),
             "voice_follow": self.voice_follow.get(), "voice_gift": self.voice_gift.get(),
+            "read_emojis": self.read_emojis.get(),
             "filters_enabled": self.filters_enabled.get(),
             "allow_effects_mute": self.allow_effects_mute.get(),
             "filtros": self.exportar_filtros(), "reconnect_interval": self.reconnect_interval.get(),
@@ -606,14 +705,13 @@ class MainPanel:
             with open(self.config_file, "w", encoding="utf-8") as f:
                 json.dump(config_to_save, f, indent=4, ensure_ascii=False)
             self.save_persistent_data()
-        except Exception as e: print("Error al guardar configuración:", e)
+        except Exception as e: print("Error guardar config:", e)
 
     def exportar_filtros(self):
         filtros_validos = []
         for s in self.filtros_slots:
             filtro_nombre = s["filtro"].get()
             if filtro_nombre and filtro_nombre in self.filtros_disponibles:
-                # 👈 Exportamos también la variable de mute individual
                 filtros_validos.append({
                     "evento": s["evento"].get(), 
                     "filtro": filtro_nombre, 
@@ -626,7 +724,6 @@ class MainPanel:
         for f in self.config_data.get("filtros", []):
             filtro_val = f.get("filtro")
             if filtro_val and filtro_val in self.filtros_disponibles:
-                # 👈 Cargamos la variable de mute individual
                 self.agregar_filtro_slot(
                     ev_val=f.get("evento", "follow"), 
                     filtro_val=filtro_val, 
@@ -634,6 +731,39 @@ class MainPanel:
                     mute_val=f.get("mute_background", False)
                 )
 
+    # ======================================================
+    # MANEJO DE AUDIO TTS Y EMOJIS
+    # ======================================================
+    EMOJI_PATTERN = re.compile(
+        "["
+        u"\U0001F600-\U0001F64F"
+        u"\U0001F300-\U0001F5FF"
+        u"\U0001F680-\U0001F6FF"
+        u"\U0001F1E0-\U0001F1FF"
+        u"\U00002702-\U000027B0"
+        u"\U000024C2-\U0001F251"
+        "]+", flags=re.UNICODE
+    )
+
+    def play_audio(self, text):
+        if not self.is_running: return
+        try:
+            if not self.read_emojis.get():
+                text = self.EMOJI_PATTERN.sub(r'', text)
+            
+            filename = f"tts_{int(time.time() * 1000)}.mp3"
+            gTTS(text=text, lang='es').save(filename)
+            pygame.mixer.music.load(filename)
+            pygame.mixer.music.set_volume(self.volume_tts_val.get() / 100.0)
+            pygame.mixer.music.play()
+            while pygame.mixer.music.get_busy(): time.sleep(0.05)
+            pygame.mixer.music.unload()
+            os.remove(filename)
+        except Exception as e: print("Error TTS:", e)
+
+    # ======================================================
+    # VOICE PROCESSOR (LÓGICA CORREGIDA)
+    # ======================================================
     def voice_processor(self):
         while True:
             ev_type, user, content, vars_dict = self.queue.get()
@@ -675,7 +805,6 @@ class MainPanel:
                     for slot in self.filtros_slots:
                         ev = slot["evento"].get().strip()
                         if ev_type == "follow" and ev == "follow":
-                            # Pasamos la configuración de mute del slot
                             efectos_pendientes.append((slot["filtro"].get(), slot["duracion"].get(), 1, slot["mute_var"].get()))
                         elif ev_type == "gift":
                             nombre_regalo_evento = vars_dict.get("gift", "").strip()
@@ -685,7 +814,6 @@ class MainPanel:
                     
                     if efectos_pendientes:
                         for filtro, duracion, repeticiones, apply_mute in efectos_pendientes:
-                            # Pasamos apply_mute a ejecutar_filtro
                             self.ejecutar_filtro(filtro, duracion, repeticiones, apply_mute=apply_mute)
                         
                         if texto and voice_allowed:
@@ -702,33 +830,31 @@ class MainPanel:
                 if is_priority and self.skip_delay.get(): debe_aplicar_delay = False
                 if debe_aplicar_delay: time.sleep(self.delay_val.get())
 
+                # ======================================================
+                # LÓGICA DE LECTURA DEL ÚLTIMO COMENTARIO
+                # ======================================================
                 if self.queue.qsize() > 5:
                     priority = []
-                    last_comment = None
+                    last_comment = None 
+                    
                     while not self.queue.empty():
                         item = self.queue.get()
-                        if item[0] in ("follow", "gift"): priority.append(item)
-                        else: last_comment = item
+                        if item[0] in ("follow", "gift"):
+                            priority.append(item)
+                        else:
+                            last_comment = item
                         self.queue.task_done()
+                    
                     for p in priority: self.queue.put(p)
-                    if last_comment: self.queue.put(last_item)
+                    
+                    if last_comment: 
+                        self.queue.put(last_comment)
                         
-            except Exception as e: print("Error en voice_processor:", e)
+            except Exception as e: 
+                print("Error en voice_processor:", e)
+                traceback.print_exc()
             self.queue.task_done()
             
-    def play_audio(self, text):
-        if not self.is_running: return
-        try:
-            filename = f"tts_{int(time.time() * 1000)}.mp3"
-            gTTS(text=text, lang='es').save(filename)
-            pygame.mixer.music.load(filename)
-            pygame.mixer.music.set_volume(self.volume_tts_val.get() / 100.0)
-            pygame.mixer.music.play()
-            while pygame.mixer.music.get_busy(): time.sleep(0.05)
-            pygame.mixer.music.unload()
-            os.remove(filename)
-        except Exception as e: print("Error en TTS:", e)
-
     def update_log(self, text):
         self.log_txt.config(state='normal')
         self.log_txt.insert(tk.END, text + "\n")
@@ -736,7 +862,6 @@ class MainPanel:
         self.log_txt.config(state='disabled')
 
     def log(self, text):
-        """Helper para loggear desde métodos no-UI"""
         self.update_log(text)
 
     def toggle_bot(self):
@@ -745,7 +870,7 @@ class MainPanel:
             errores = self.validar_filtros()
             if errores: self.mostrar_error_validacion(errores); return
             self.is_running = True
-            self.btn_toggle.config(text="Detener Live")
+            self.btn_toggle.config(text="⏹ DETENER LIVE")
             self.btn_test.config(state="disabled")
             self.update_log(">>> CONECTANDO AL LIVE...")
             self.deshabilitar_configuracion()
@@ -756,7 +881,7 @@ class MainPanel:
             self.scraper_thread.start()
         else:
             self.is_running = False
-            self.btn_toggle.config(text="Iniciar Live")
+            self.btn_toggle.config(text="▶ INICIAR LIVE")
             self.btn_test.config(state="normal")
             self.update_log(">>> BOT DETENIDO")
             self.habilitar_configuracion()
@@ -788,6 +913,7 @@ class MainPanel:
                     for key, value in loaded.items():
                         if key != "eventos": self.config_data[key] = value
                     self.config_data["allow_effects_mute"] = loaded.get("allow_effects_mute", True)
+                    self.config_data["read_emojis"] = loaded.get("read_emojis", True)
             except: pass
 
     def load_persistent_data(self):
@@ -815,6 +941,7 @@ class MainPanel:
             "skip_delay_priority": self.skip_delay.get(), "msg_follow": self.ent_msg_follow.get(),
             "msg_gift": self.ent_msg_gift.get(), "voice_chat": self.voice_chat.get(),
             "voice_follow": self.voice_follow.get(), "voice_gift": self.voice_gift.get(),
+            "read_emojis": self.read_emojis.get(),
             "filters_enabled": self.filters_enabled.get(),
             "allow_effects_mute": self.allow_effects_mute.get(),
             "filtros": self.exportar_filtros(), "reconnect_interval": self.reconnect_interval.get(),
