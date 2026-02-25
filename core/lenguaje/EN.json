@@ -1,0 +1,90 @@
+{
+    "title": "TikTok Live Bot - Pro",
+    "tabs": {
+        "control": "📺 Control",
+        "config": "⚙️ Settings",
+        "effects": "🎭 Effects",
+        "commands": "💬 Commands",
+        "info": "ℹ️ Info"
+    },
+    "control": {
+        "user_tiktok": "TikTok User:",
+        "start": "▶ START BOT",
+        "stop": "🛑 STOP BOT",
+        "test_window": "🧪 OPEN SIMULATOR",
+        "log_title": "Activity Log:"
+    },
+    "config": {
+        "language": "Language / Idioma:",
+        "voice_settings": "Voice Settings",
+        "read_chat": "Read Chat",
+        "read_follows": "Announce Follows",
+        "read_gifts": "Announce Gifts",
+        "read_emojis": "Read Emojis",
+        "effects_settings": "Effects Settings",
+        "enable_effects": "Enable Effects",
+        "mute_background": "Mute background on effects",
+        "concurrency": "Max Sim. Effects:",
+        "combo_delay": "Combo wait (s):",
+        "messages": "Custom Messages",
+        "msg_follow": "Follow Message:",
+        "msg_gift": "Gift Message:",
+        "volumes": "Volumes",
+        "vol_tts": "Voice (TTS) Volume:",
+        "vol_effects": "Effects Volume:"
+    },
+    "effects": {
+        "add": "[ + ] ADD EFFECT",
+        "reload": "🔄 RELOAD EFFECTS",
+        "event": "Event",
+        "duration": "during",
+        "seconds": "s",
+        "active_effects": "Active Effects:"
+    },
+    "commands": {
+        "new": " New Command ",
+        "add": "Add Command",
+        "active": "Active Commands:"
+    },
+    "simulator": {
+        "title": "Event Simulator (Testing)",
+        "chat_title": " Simulate Chat ",
+        "user": "User:",
+        "message": "Message:",
+        "send": "Send",
+        "follow": "👤 Simulate Follow",
+        "gifts": "🎁 Simulate Gifts:",
+        "combo": "Combo:"
+    },
+    "system": {
+        "connected": "[System] Connected to @{user}",
+        "disconnected": "[System] Disconnected.",
+        "error_search": "Error searching effects: {e}",
+        "cmd_added": "[System] Command added: {cmd}",
+        "cmd_removed": "[System] Command removed: {cmd}",
+        "cmd_exists": "Command {cmd} already exists.",
+        "vlc_error": "Effect 'videoR' requires 'python-vlc'.",
+        "no_effects": "No effects found in gift_anim.py",
+        "warning": "Warning",
+        "pycaw_error": "[Muting] ERROR: PyCAW not available.",
+        "invalid_duration": "Invalid duration for '{filter}': '{val}'",
+        "min_duration": "{filter}: Invalid value, minimum 1",
+        "validation_error": "Validation Error",
+        "conflict": "A conflict was declared",
+        "accept": "Accept",
+        "user_error": "User Error",
+        "bot_stopped_user": ">>> BOT STOPPED (invalid user)",
+        "connecting": ">>> CONNECTING TO LIVE...",
+        "stopped": ">>> BOT STOPPED"
+    },
+    "info": {
+        "version": "Version",
+        "author": "Author",
+        "description_title": "Description",
+        "description_text": "Advanced control panel for TikTok Live.",
+        "mute_title": "• Smart Muting",
+        "mute_text": "Use the global option 'Allow effects to mute background' to activate the system. Then, check the 🔇 icon on each specific filter that should cut game or music sound.",
+        "management_title": "• Effect Management",
+        "management_text": "If you add new sounds or effects to the folders, use the 'RELOAD EFFECTS' button to update the list without restarting the program."
+    }
+}

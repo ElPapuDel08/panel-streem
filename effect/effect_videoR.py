@@ -2,6 +2,7 @@
 import os
 import sys
 import tkinter as tk
+import threading
 import random
 import ctypes
 import time
@@ -29,130 +30,121 @@ def crear_ventana_base():
     aplicar_estilo_fantasma(root)
     return root
 
-# === FUNCIÓN PARA REPRODUCIR VIDEO ESPECÍFICO ===
-def ejecutar_especifico(nombre_archivo, duracion_ms=None, volumen=100):
-    """
-    Reproduce un archivo MP4 específico desde video/.
-    
-    Args:
-        nombre_archivo (str): Nombre del archivo sin extensión (ej. 'intro')
-        duracion_ms (int, opcional): Duración en milisegundos.
-            - Si es None o <= 0: reproduce hasta el final.
-            - Si es > 0: corta tras ese tiempo (solo si el video dura más).
-        volumen (int, opcional): Volumen del audio (0-100). Por defecto: 100.
-    """
-    try:
-        import vlc
-    except ImportError:
-        return {"error": "Efecto 'videoR' requiere 'python-vlc'. Ejecuta: pip install python-vlc"}
-
-    # Validar volumen
-    volumen = max(0, min(100, int(volumen) if volumen is not None else 100))
-
-    ruta_videos = "video"
-    ruta_completa = os.path.join(ruta_videos, f"{nombre_archivo}.mp4")
-    
-    if not os.path.exists(ruta_completa):
-        return {"error": f"Archivo '{nombre_archivo}.mp4' no encontrado en 'video/'."}
-
-    root = crear_ventana_base()
-    sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
-    ALTURA, ANCHO = 256, 341  # Relación 4:3
-    x = random.randint(0, max(0, sw - ANCHO))
-    y = random.randint(0, max(0, sh - ALTURA))
-    root.geometry(f"{ANCHO}x{ALTURA}+{x}+{y}")
-
-    # Inicializar VLC
-    try:
-        instance = vlc.Instance("--no-xlib", "--quiet")
-        player = instance.media_player_new()
-        player.set_hwnd(root.winfo_id())
-        
-        media = instance.media_new(os.path.abspath(ruta_completa))
-        player.set_media(media)
-        player.audio_set_volume(volumen)
-    except Exception as e:
-        return {"error": f"Error al inicializar VLC: {str(e)}"}
-
-    duracion_usada = duracion_ms
-    inicio_real = None
-    timer_activo = True
-    
-    def cerrar_ventana():
-        nonlocal timer_activo
-        if timer_activo:
-            timer_activo = False
-            try:
-                player.stop()
-                player.release()
-                instance.release()
-            except:
-                pass
-            root.destroy()
-
-    def gestionar_reproduccion():
-        nonlocal inicio_real, duracion_usada, timer_activo
-        
-        if not timer_activo:
-            return
-            
-        try:
-            estado = player.get_state()
-            tiempo_actual = player.get_time()
-            
-            if inicio_real is None and tiempo_actual > 0:
-                inicio_real = time.time()
-            
-            if estado in (vlc.State.Ended, vlc.State.Error):
-                cerrar_ventana()
-                return
-                
-            if duracion_usada is not None and duracion_usada > 0:
-                if inicio_real is not None:
-                    tiempo_transcurrido = (time.time() - inicio_real) * 1000
-                    if tiempo_transcurrido >= duracion_usada:
-                        cerrar_ventana()
-                        return
-            
-            root.after(50, gestionar_reproduccion)
-            
-        except Exception:
-            cerrar_ventana()
-
-    player.play()
-    root.after(100, gestionar_reproduccion)
-    root.protocol("WM_DELETE_WINDOW", cerrar_ventana)
-    root.mainloop()
-    
-    return {"mensaje": f"Video '{nombre_archivo}' reproducido."}
-
-# === FUNCIÓN PRINCIPAL (ALEATORIA) ===
-def ejecutar(duracion_ms=None, volumen=100):
-    """
-    Ejecuta un video aleatorio con audio.
-    
-    Args:
-        duracion_ms (int, opcional): Duración en milisegundos.
-            - Si es None o <= 0: reproduce hasta el final.
-            - Si es > 0: corta tras ese tiempo (solo si el video dura más).
-        volumen (int, opcional): Volumen del audio (0-100). Por defecto: 100.
-    """
+# === FUNCIÓN PARA LISTAR VIDEOS DISPONIBLES ===
+def listar_sub_efectos():
+    """Descubre videos en video/ y los devuelve con el prefijo 'video_'."""
     ruta_videos = "video"
     if not os.path.exists(ruta_videos):
-        return {"error": "Carpeta 'video/' no encontrada."}
+        return []
 
-    archivos = []
+    sub_efectos = []
     for f in os.listdir(ruta_videos):
         if f.endswith('.mp4'):
             partes = f.split('_', 1)
             if partes and partes[0].isdigit():
-                archivos.append(f)
-
-    if not archivos:
-        return {"error": "No hay videos en formato '{n}_nombre.mp4' en 'video/'."}
-
-    video = random.choice(archivos)
-    nombre_sin_ext = os.path.splitext(video)[0]
+                nombre = os.path.splitext(f)[0]
+                sub_efectos.append(f"video_{nombre}")
     
-    # Reutilizar la función específica
-    return ejecutar_especifico(nombre_sin_ext, duracion_ms, volumen)
+    return sorted(sub_efectos)
+
+# === FUNCIÓN PARA REPRODUCIR VIDEO ESPECÍFICO ===
+def ejecutar_especifico(nombre_especifico, duracion_ms=None, volumen=100, parent=None, done_event=None):
+    """
+    Reproduce un archivo MP4 específico.
+    """
+    try:
+        import vlc
+    except ImportError:
+        return {"error": "Efecto 'videoR' requiere 'python-vlc'."}
+
+    nombre_archivo = nombre_especifico.replace("video_", "")
+    volumen = max(0, min(100, int(volumen) if volumen is not None else 100))
+    ruta_completa = os.path.join("video", f"{nombre_archivo}.mp4")
+    
+    if not os.path.exists(ruta_completa):
+        return {"error": f"Archivo '{nombre_archivo}.mp4' no encontrado."}
+
+    sw, sh = (parent.winfo_screenwidth(), parent.winfo_screenheight()) if parent else (1920, 1080)
+    ALTURA, ANCHO = 256, 341 
+    x, y = random.randint(0, max(0, sw - ANCHO)), random.randint(0, max(0, sh - ALTURA))
+
+    if parent:
+        # En el stage persistente, usamos una ventana Toplevel pero hija de parent
+        # para que aparezca "encima" de ese lienzo específico.
+        # O mejor, un Frame sobre el parent.
+        container = tk.Frame(parent, width=ANCHO, height=ALTURA, bg=parent["bg"])
+        container.place(x=x, y=y)
+        win_id = container.winfo_id()
+    else:
+        root = crear_ventana_base()
+        root.geometry(f"{ANCHO}x{ALTURA}+{x}+{y}")
+        win_id = root.winfo_id()
+
+    try:
+        instance = vlc.Instance("--no-xlib", "--quiet")
+        player = instance.media_player_new()
+        player.set_hwnd(win_id)
+        player.set_media(instance.media_new(os.path.abspath(ruta_completa)))
+        player.audio_set_volume(volumen)
+    except Exception as e:
+        return {"error": f"VLC Error: {str(e)}"}
+
+    inicio_real = None
+    timer_activo = True
+    
+    def cerrar():
+        nonlocal timer_activo
+        if timer_activo:
+            timer_activo = False
+            try: player.stop(); player.release(); instance.release()
+            except: pass
+            if parent: container.destroy()
+            else: root.destroy()
+            if done_event: done_event.set()
+
+    def gestionar():
+        nonlocal inicio_real
+        if not timer_activo: return
+        try:
+            if player.get_state() in (vlc.State.Ended, vlc.State.Error):
+                cerrar(); return
+            if player.get_time() > 0 and inicio_real is None:
+                inicio_real = time.time()
+            if duracion_ms and inicio_real and (time.time() - inicio_real)*1000 >= duracion_ms:
+                cerrar(); return
+            (container if parent else root).after(50, gestionar)
+        except: 
+            cerrar()
+            if done_event: done_event.set()
+
+    player.play()
+    (container if parent else root).after(100, gestionar)
+    if not parent:
+        root.protocol("WM_DELETE_WINDOW", cerrar)
+        root.mainloop()
+    
+    return {"mensaje": f"Video '{nombre_archivo}' reproducido."}
+
+# === FUNClÓN PRINCIPAL ===
+def ejecutar(duracion_ms=None, volumen=100, sub_tipo='NULL', cantidad=1, parent=None):
+    done_event = threading.Event()
+    for i in range(cantidad):
+        if sub_tipo == 'NULL':
+            ruta_videos = "video"
+            if not os.path.exists(ruta_videos): return {"error": "video/ no found"}
+            archivos = [f for f in os.listdir(ruta_videos) if f.endswith('.mp4') and f.split('_', 1)[0].isdigit()]
+            if not archivos: return {"error": "no valid videos"}
+            nombre_a_ejecutar = os.path.splitext(random.choice(archivos))[0]
+        else:
+            nombre_a_ejecutar = sub_tipo
+
+        res = ejecutar_especifico(nombre_a_ejecutar, duracion_ms, volumen, parent=parent, done_event=done_event)
+        
+        # Esperar a que el video termine
+        done_event.wait()
+        done_event.clear()
+        
+        if "error" in res: return res
+        if i < cantidad - 1: time.sleep(0.1)
+            
+    return {"mensaje": f"Efecto '{NOMBRE}' ejecutado {cantidad} veces."}

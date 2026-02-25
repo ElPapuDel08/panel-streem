@@ -2,13 +2,15 @@
 import os
 import sys
 import tkinter as tk
+import threading
 from PIL import Image, ImageTk
 import random
 import ctypes
+import time
 
 # === METADATOS ===
 NOMBRE = "rebote"
-VERSION = "1.0"
+VERSION = "1.1"
 
 # === FUNCIONES AUXILIARES ===
 COLOR_FONDO = "#FF00FF"
@@ -30,42 +32,58 @@ def crear_ventana_base():
     return root
 
 # === FUNCIÓN PRINCIPAL ===
-def ejecutar(duracion_ms=None, volumen=100):  # 👈 Añadir 'volumen' (aunque no se use)
-    if duracion_ms == 0:
-        return {"error": "DVD = \"value invalid, minim is =>1\""}
-        
+def ejecutar(duracion_ms=None, volumen=100, sub_tipo='NULL', cantidad=1, parent=None):
+    if duracion_ms == 0: return {"error": "DVD = \"value invalid\""}
     ruta_iconos = "icon"
-    if not os.path.exists(ruta_iconos):
-        return {"error": "Carpeta 'icon/' no encontrada."}
+    if not os.path.exists(ruta_iconos): return {"error": "icon/ no found"}
+    archivos = [f for f in os.listdir(ruta_iconos) if f.endswith('.png') and f.split('.')[0].isdigit()]
+    if not archivos: return {"error": "no icons"}
+
+    done_event = threading.Event()
+
+    for i in range(cantidad):
+        img_path = os.path.join(ruta_iconos, random.choice(archivos))
+        if parent:
+            iniciar_rebote(parent, img_path, duracion_ms, is_standalone=False, done_event=done_event)
+        else:
+            root = crear_ventana_base()
+            iniciar_rebote(root, img_path, duracion_ms, is_standalone=True, done_event=done_event)
         
-    archivos = [f for f in os.listdir(ruta_iconos) 
-                if f.endswith('.png') and f.split('.')[0].isdigit()]
-    if not archivos:
-        return {"error": "No hay íconos en 'icon/'."}
+        # Esperar a que esta instancia termine
+        done_event.wait()
+        done_event.clear()
+        
+        if i < cantidad - 1: time.sleep(0.3)
+    return {"mensaje": f"Efecto '{NOMBRE}' ejecutado {cantidad} veces."}
 
-    root = crear_ventana_base()
-    img_path = os.path.join(ruta_iconos, random.choice(archivos))
-    img = Image.open(img_path).convert("RGBA").resize((256, 256), Image.LANCZOS)
-    photo = ImageTk.PhotoImage(img)
-    label = tk.Label(root, image=photo, bg=COLOR_FONDO, bd=0)
-    label.image = photo
-    label.pack()
-
-    sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
-    x = random.randint(0, sw - 256)
-    y = random.randint(0, sh - 256)
-    dx, dy = random.choice([-7, 7]), random.choice([-7, 7])
-
+def iniciar_rebote(master, img_path, duracion_ms, is_standalone=True, done_event=None):
+    img = Image.open(img_path).convert("RGBA").resize((128, 128), Image.LANCZOS)
+    photo = ImageTk.PhotoImage(img, master=master)
+    if is_standalone:
+        widget = tk.Label(master, image=photo, bg=COLOR_FONDO, bd=0)
+        widget.pack()
+    else:
+        widget = tk.Label(master, image=photo, bg=master["bg"], bd=0)
+        widget.place(x=0, y=0)
+    widget.image = photo
+    sw, sh = master.winfo_screenwidth(), master.winfo_screenheight()
+    x, y = random.randint(0, sw - 128), random.randint(0, sh - 128)
+    dx, dy = random.choice([-8, 8]), random.choice([-8, 8])
     def mover():
         nonlocal x, y, dx, dy
-        x += dx
-        y += dy
-        if x <= 0 or x >= sw - 256: dx *= -1
-        if y <= 0 or y >= sh - 256: dy *= -1
-        root.geometry(f"+{int(x)}+{int(y)}")
-        root.after(16, mover)
-
+        x += dx; y += dy
+        if x <= 0 or x >= sw - 128: dx *= -1
+        if y <= 0 or y >= sh - 128: dy *= -1
+        if is_standalone: master.geometry(f"+{int(x)}+{int(y)}")
+        else: widget.place(x=int(x), y=int(y))
+        try: widget.after(16, mover)
+        except: pass
     mover()
-    root.after(duracion_ms, root.destroy)
-    root.mainloop()
-    return {"mensaje": f"Efecto '{NOMBRE}' v{VERSION} ejecutado."}
+    def cleanup():
+        try:
+            if is_standalone: master.destroy()
+            else: widget.destroy()
+            if done_event: done_event.set()
+        except: 
+            if done_event: done_event.set()
+    master.after(duracion_ms if duracion_ms else 5000, cleanup)

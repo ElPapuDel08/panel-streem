@@ -12,10 +12,18 @@ import subprocess
 import sys
 import traceback
 import re
+import socket
 from tkinter import messagebox
+
+# === CONFIGURACIÓN DE RUTAS ===
+# De core/ui/panel.py -> core/ui -> core -> raiz
+RAIZ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if RAIZ not in sys.path:
+    sys.path.insert(0, RAIZ)
 
 # Importación del scraper
 from content_tiktok import TikTokScraper
+from core.ui.plugins import WorkshopManager
 
 # ===== IMPORTACIÓN OPCIONAL DE PYCAW =====
 try:
@@ -26,6 +34,46 @@ try:
     HAS_PYCAW = True
 except Exception:
     HAS_PYCAW = False
+
+# ======================================================
+# CLASE TOOLTIP PARA NOMBRES LARGOS
+# ======================================================
+class ToolTip:
+    def __init__(self, widget):
+        self.widget = widget
+        self.tip_window = None
+        self.text = ""
+        self.widget.bind("<Enter>", self.show_tip)
+        self.widget.bind("<Leave>", self.hide_tip)
+
+    def update_text(self, new_text):
+        self.text = new_text
+
+    def show_tip(self, event=None):
+        if self.tip_window or not self.text:
+            return
+        # Solo mostrar si el widget es un Combobox y el texto es más largo de lo visible
+        # o simplemente mostrarlo siempre para asegurar legibilidad como pidió el usuario.
+        x = self.widget.winfo_rootx() + 20
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 5
+        
+        self.tip_window = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry("+%d+%d" % (x, y))
+        tw.attributes("-topmost", True)
+        
+        label = tk.Label(tw, text=self.text, justify=tk.LEFT,
+                         background="#2c3e50", foreground="white", 
+                         relief=tk.SOLID, borderwidth=1,
+                         padx=5, pady=2,
+                         font=("Segoe UI", "9", "normal"))
+        label.pack(ipadx=1)
+
+    def hide_tip(self, event=None):
+        tw = self.tip_window
+        self.tip_window = None
+        if tw:
+            tw.destroy()
 
 class MainPanel:
     def __init__(self, root):
@@ -56,12 +104,15 @@ class MainPanel:
             "read_emojis": True,
             "filters_enabled": True,
             "allow_effects_mute": True,
-            "filtros": [],
+            "filtros": [], # Mantener por compatibilidad con config.json
+            "comandos": ["!bola8"], # Nueva lista de comandos
             "eventos": ["Doughnut"],
             "reconnect_interval": 5,
             "reconnect_attempts": 10,
             "volume_tts": 100,
-            "volume_effects": 100
+            "volume_effects": 100,
+            "max_concurrency": 3,
+            "delay_combo": 1.0
         }
 
         self.load_config()
@@ -74,17 +125,48 @@ class MainPanel:
         self.read_emojis = tk.BooleanVar(value=self.config_data.get("read_emojis", True))
         self.filters_enabled = tk.BooleanVar(value=self.config_data["filters_enabled"])
         self.allow_effects_mute = tk.BooleanVar(value=self.config_data.get("allow_effects_mute", True))
+        
+        # Concurrencia y Semáforos
+        self.max_concurrency = tk.IntVar(value=self.config_data.get("max_concurrency", 3))
+        self.delay_combo = tk.DoubleVar(value=self.config_data.get("delay_combo", 1.0))
+        self.semaphores = {} # Se llenará dinámicamente por tipo de efecto
 
-        # Filtros y UI
-        self.filtros_slots = []
-        self.filtros_disponibles = self.detectar_filtros()
+        # Efectos y UI
+        self.efectos_slots = []
+        self.efectos_disponibles = self.detectar_efectos()
 
         pygame.mixer.init()
         self.setup_ui()
-        self.cargar_filtros()
+        self.cargar_efectos()
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         threading.Thread(target=self.voice_processor, daemon=True).start()
+        
+        # Iniciar Stage (Lienzo persistente)
+        self.setup_stage()
+
+    # ======================================================
+    # STAGE PERSISTENTE Y SERVIDOR DE SEÑALES (UDP)
+    # ======================================================
+    def setup_stage(self):
+        self.stage = tk.Toplevel(self.root)
+        self.stage.title("Efectos - Stage")
+        self.stage.attributes("-topmost", True)
+        self.stage.attributes("-fullscreen", True)
+        self.stage.config(bg="magenta")
+        self.stage.attributes("-transparentcolor", "magenta")
+        
+        # Lienzo persistente único para efectos (boom, carta, rebote, etc.)
+        self.persistent_canvas = tk.Canvas(self.stage, bg="magenta", highlightthickness=0, bd=0)
+        self.persistent_canvas.pack(fill="both", expand=True)
+        # Exponerlo para que los módulos de efectos lo encuentren
+        self.stage.persistent_canvas = self.persistent_canvas
+        
+        # No dejar que el usuario la cierre directamente
+        self.stage.protocol("WM_DELETE_WINDOW", lambda: None)
+        # Ocultar de la barra de tareas si es posible (overrideredirect puede ser muy agresivo)
+        # self.stage.overrideredirect(True) 
+        
 
     # ======================================================
     # ESTILOS VISUALES PRO
@@ -127,17 +209,23 @@ class MainPanel:
     def create_tabs(self):
         self.tab_control = self.create_scrollable_tab("Control")
         self.tab_config = self.create_scrollable_tab("Configuración")
-        self.tab_filtros = self.create_scrollable_tab("Filtros")
-        self.tab_info = self.create_scrollable_tab("Info")
+        self.tab_efectos = self.create_scrollable_tab("Efectos")
+        self.tab_comandos = self.create_scrollable_tab("Comandos")
+        self.tab_workshop = ttk.Frame(self.notebook)
+        self.tab_info = ttk.Frame(self.notebook)
 
-        self.notebook.add(self.tab_control, text="  📺 Control  ")
-        self.notebook.add(self.tab_config, text="  ⚙️ Configuración  ")
-        self.notebook.add(self.tab_filtros, text="  🎭 Filtros  ")
-        self.notebook.add(self.tab_info, text="  ℹ️ Info  ")
+        self.notebook.add(self.tab_control, text=" 🎮 Control ")
+        self.notebook.add(self.tab_config, text=" ⚙️ Ajustes ")
+        self.notebook.add(self.tab_efectos, text=" 🎭 Efectos ")
+        self.notebook.add(self.tab_comandos, text=" 💬 Comandos ")
+        self.notebook.add(self.tab_workshop, text=" 🛠️ Workshop ")
+        self.notebook.add(self.tab_info, text=" ℹ️ Info ")
 
         self.setup_control_tab()
         self.setup_config_tab()
-        self.setup_filtros_tab()
+        self.setup_efectos_tab()
+        self.setup_comandos_tab()
+        self.setup_workshop_tab()
         self.setup_info_tab()
 
     def create_scrollable_tab(self, name):
@@ -248,7 +336,7 @@ class MainPanel:
         grid_sys = ttk.Frame(frame_sys)
         grid_sys.pack(fill="x", padx=5, pady=5)
 
-        ttk.Checkbutton(grid_sys, text="🎬 Activar Filtros de Animación", variable=self.filters_enabled).grid(row=0, column=0, sticky="w", padx=5)
+        ttk.Checkbutton(grid_sys, text="🎬 Activar Efectos de Animación", variable=self.filters_enabled).grid(row=0, column=0, sticky="w", padx=5)
         ttk.Checkbutton(grid_sys, text="🔇 Silenciar Fondo al reproducir efectos", variable=self.allow_effects_mute).grid(row=1, column=0, sticky="w", padx=5)
 
         ttk.Label(grid_sys, text="Reconexión (seg):").grid(row=2, column=0, sticky="w", padx=5, pady=2)
@@ -259,41 +347,150 @@ class MainPanel:
         self.reconnect_attempts = tk.IntVar(value=self.config_data["reconnect_attempts"])
         ttk.Spinbox(grid_sys, from_=1, to=100, width=5, textvariable=self.reconnect_attempts).grid(row=3, column=1, sticky="e", padx=5, pady=2)
 
-    def setup_filtros_tab(self):
-        parent = self.tab_filtros
+        # --- SECCIÓN 5: OPTIMIZACIÓN Y SLOTS ---
+        frame_slots = ttk.LabelFrame(main_content, text=" Optimización y Superposición (Slots) ")
+        frame_slots.pack(fill="x", pady=5)
+
+        grid_slots = ttk.Frame(frame_slots)
+        grid_slots.pack(fill="x", padx=5, pady=5)
+
+        ttk.Label(grid_slots, text="Máx. Efectos Simultáneos (por tipo):").grid(row=0, column=0, sticky="w", padx=5, pady=2)
+        ttk.Spinbox(grid_slots, from_=1, to=10, width=5, textvariable=self.max_concurrency).grid(row=0, column=1, sticky="e", padx=5, pady=2)
+
+        ttk.Label(grid_slots, text="Retraso en Combo Escalera (seg):").grid(row=1, column=0, sticky="w", padx=5, pady=2)
+        ttk.Spinbox(grid_slots, from_=0.1, to=5.0, increment=0.1, width=5, textvariable=self.delay_combo).grid(row=1, column=1, sticky="e", padx=5, pady=2)
+
+    def setup_efectos_tab(self):
+        parent = self.tab_efectos
         parent.config(padding="10")
 
         # Marco para los botones de acción superior
         frame_actions = ttk.Frame(parent)
         frame_actions.pack(fill="x", pady=5)
 
-        self.btn_add_filtro = ttk.Button(frame_actions, text="[ + ] AGREGAR FILTRO", command=self.agregar_filtro_slot)
-        self.btn_add_filtro.pack(side="left", padx=5)
+        self.btn_add_efecto = ttk.Button(frame_actions, text="[ + ] AGREGAR EFECTO", command=self.agregar_efecto_slot)
+        self.btn_add_efecto.pack(side="left", padx=5)
         
         # 👇 NUEVO BOTÓN DE RECARGA
-        self.btn_reload_filtros = ttk.Button(frame_actions, text="🔄 RECARGAR EFECTOS", command=self.recargar_filtros)
-        self.btn_reload_filtros.pack(side="left", padx=5)
+        self.btn_reload_efectos = ttk.Button(frame_actions, text="🔄 RECARGAR LISTA", command=self.recargar_efectos)
+        self.btn_reload_efectos.pack(side="left", padx=5)
 
-        self.canvas_filtros = tk.Canvas(parent, highlightthickness=0, bg="#f0f0f0")
-        self.scrollbar_filtros = ttk.Scrollbar(parent, orient="vertical", command=self.canvas_filtros.yview)
-        self.frame_filtros = ttk.Frame(self.canvas_filtros)
+        self.canvas_efectos = tk.Canvas(parent, highlightthickness=0, bg="#f0f0f0")
+        self.scrollbar_efectos = ttk.Scrollbar(parent, orient="vertical", command=self.canvas_efectos.yview)
+        self.frame_efectos = ttk.Frame(self.canvas_efectos)
 
-        self.frame_filtros.bind("<Configure>", lambda e: self.canvas_filtros.configure(scrollregion=self.canvas_filtros.bbox("all")))
-        self.canvas_filtros.create_window((0, 0), window=self.frame_filtros, anchor="nw")
-        self.canvas_filtros.configure(yscrollcommand=self.scrollbar_filtros.set)
+        self.frame_efectos.bind("<Configure>", lambda e: self.canvas_efectos.configure(scrollregion=self.canvas_efectos.bbox("all")))
+        self.canvas_efectos.create_window((0, 0), window=self.frame_efectos, anchor="nw")
+        self.canvas_efectos.configure(yscrollcommand=self.scrollbar_efectos.set)
 
-        self.canvas_filtros.pack(side="left", fill="both", expand=True)
-        self.scrollbar_filtros.pack(side="right", fill="y")
-        self.frame_filtros.bind("<Configure>", self.toggle_scroll_filtros)
+        self.canvas_efectos.pack(side="left", fill="both", expand=True)
+        self.scrollbar_efectos.pack(side="right", fill="y")
+        self.frame_efectos.bind("<Configure>", self.toggle_scroll_efectos)
 
-        if not self.filtros_disponibles:
+        if not self.efectos_disponibles:
             ttk.Label(parent, text="⚠️ No se encontraron efectos en gift_anim.py", foreground="#c0392b", font=("Segoe UI", 10, "bold")).pack(pady=20)
 
-    def toggle_scroll_filtros(self, event=None):
-        if self.frame_filtros.winfo_reqheight() > self.canvas_filtros.winfo_height():
-            self.scrollbar_filtros.pack(side="right", fill="y")
+    def toggle_scroll_efectos(self, event=None):
+        if self.frame_efectos.winfo_reqheight() > self.canvas_efectos.winfo_height():
+            self.scrollbar_efectos.pack(side="right", fill="y")
         else:
-            self.scrollbar_filtros.pack_forget()
+            self.scrollbar_efectos.pack_forget()
+
+    def setup_comandos_tab(self):
+        parent = self.tab_comandos
+        parent.config(padding="15")
+        
+        # --- Cabecera: Añadir Comando ---
+        frame_add = ttk.LabelFrame(parent, text=" Nuevo Comando ")
+        frame_add.pack(fill="x", pady=(0, 15))
+        
+        inner_add = ttk.Frame(frame_add)
+        inner_add.pack(padx=10, pady=10, fill="x")
+        
+        ttk.Label(inner_add, text="!", font=("Segoe UI", 12, "bold")).pack(side="left")
+        self.ent_new_cmd = ttk.Entry(inner_add, font=("Segoe UI", 11))
+        self.ent_new_cmd.pack(side="left", padx=5, fill="x", expand=True)
+        self.ent_new_cmd.bind("<Return>", lambda e: self.agregar_comando())
+        
+        btn_add = ttk.Button(inner_add, text="Añadir Comando", command=self.agregar_comando)
+        btn_add.pack(side="left", padx=5)
+
+        # --- Lista de Comandos ---
+        lbl_list = ttk.Label(parent, text="Comandos Activos:", font=("Segoe UI", 10, "bold"))
+        lbl_list.pack(anchor="w", pady=(0, 5))
+        
+        self.frame_cmds_list = ttk.Frame(parent)
+        self.frame_cmds_list.pack(fill="both", expand=True)
+        
+        self.actualizar_vista_comandos()
+
+    def agregar_comando(self):
+        cmd = self.ent_new_cmd.get().strip()
+        if not cmd: return
+        
+        # Asegurar prefijo !
+        full_cmd = f"!{cmd}" if not cmd.startswith("!") else cmd
+        
+        if full_cmd not in self.config_data["comandos"]:
+            self.config_data["comandos"].append(full_cmd)
+            self.ent_new_cmd.delete(0, tk.END)
+            self.actualizar_vista_comandos()
+            self.guardar_configuracion_actual()
+            self.log(f"[Sistema] Comando añadido: {full_cmd}")
+            # Actualizar dropdowns en Efectos
+            self.recargar_listas_eventos()
+        else:
+            messagebox.showwarning("Comando Duplicado", f"El comando {full_cmd} ya existe.")
+
+    def eliminar_comando(self, cmd):
+        if cmd in self.config_data["comandos"]:
+            self.config_data["comandos"].remove(cmd)
+            self.actualizar_vista_comandos()
+            self.guardar_configuracion_actual()
+            self.log(f"[Sistema] Comando eliminado: {cmd}")
+            self.recargar_listas_eventos()
+
+    def actualizar_vista_comandos(self):
+        # Limpiar frame
+        for widget in self.frame_cmds_list.winfo_children():
+            widget.destroy()
+            
+        # Layout tipo "wrap" manual o simple grid
+        r, c = 0, 0
+        for cmd in self.config_data["comandos"]:
+            slot = tk.Frame(self.frame_cmds_list, bg="#eef2f5", bd=1, relief="solid", padx=5, pady=2)
+            slot.grid(row=r, column=c, padx=5, pady=5, sticky="w")
+            
+            lbl = tk.Label(slot, text=cmd, bg="#eef2f5", font=("Segoe UI", 10, "bold"))
+            lbl.pack(side="left")
+            ToolTip(lbl).update_text(cmd) # Tooltip para el comando en la lista
+            
+            btn_del = tk.Button(slot, text="X", bg="#eef2f5", fg="red", bd=0, font=("Segoe UI", 9, "bold"),
+                                command=lambda cmd=cmd: self.eliminar_comando(cmd))
+            btn_del.pack(side="left", padx=(5, 0))
+            ToolTip(btn_del).update_text(f"Eliminar comando {cmd}")
+            
+            c += 1
+            if c > 3: # 4 por fila
+                c = 0
+                r += 1
+
+    def recargar_listas_eventos(self):
+        """Actualiza los Combobox de la pestaña Efectos para incluir nuevos comandos."""
+        valores_eventos = ["follow", "all-gift"] + self.config_data["eventos"] + self.config_data["comandos"]
+        for slot in self.efectos_slots:
+            try:
+                combo = slot.get("combo_evento")
+                if combo:
+                    valor_actual = combo.get()
+                    combo['values'] = valores_eventos
+                    # Sincronizar ToolTip
+                    if "tt_evento" in slot:
+                        slot["tt_evento"].update_text(valor_actual)
+            except: pass
+
+    def setup_workshop_tab(self):
+        self.workshop_manager = WorkshopManager(self.tab_workshop, self)
 
     def setup_info_tab(self):
         parent = self.tab_info
@@ -377,33 +574,90 @@ class MainPanel:
     # ======================================================
     # EJECUCIÓN DE FILTROS
     # ======================================================
-    def ejecutar_filtro(self, filtro, duracion, repeticiones=1, apply_mute=False):
+    def ejecutar_filtro(self, filtro, duracion, repeticiones=1, apply_mute=False, sub_tipo="NULL"):
+        """Lanza el efecto en un hilo separado para no bloquear la interfaz."""
+        thread = threading.Thread(
+            target=self._ejecutar_filtro_thread,
+            args=(filtro, duracion, repeticiones, apply_mute, sub_tipo),
+            daemon=True
+        )
+        thread.start()
+
+    def _ejecutar_filtro_thread(self, filtro, duracion, repeticiones, apply_mute, sub_tipo):
         if not os.path.exists("core/gift_anim.py"): return
-        exclude_pids = [os.getpid()]
-        if duracion.isdigit(): dur = int(duracion)
+        
+        repeticiones = int(repeticiones)
+        if str(duracion).isdigit(): dur = int(duracion)
         else: dur = 15
             
         volumen = self.volume_effects_val.get()
         should_mute = self.allow_effects_mute.get() and apply_mute
+        exclude_pids = [os.getpid()]
 
+        # Semáforo para este tipo de efecto
+        if filtro not in self.semaphores:
+            self.semaphores[filtro] = threading.Semaphore(self.max_concurrency.get())
+        
+        sem = self.semaphores[filtro]
+        delay_escalera = self.delay_combo.get()
+
+        for i in range(repeticiones):
+            # El semáforo limita cuántos corren a la vez
+            sem.acquire()
+            
+            # Lanzamos la ejecución real en otro hilo para que el sem.release sea gestionado
+            # sin bloquear el bucle de "escalera"
+            threading.Thread(
+                target=self._lanzar_instancia_efecto,
+                args=(filtro, dur, volumen, sub_tipo, sem, should_mute, exclude_pids),
+                daemon=True
+            ).start()
+
+            # Efecto escalera: esperar n segundos antes de intentar lanzar el siguiente del combo
+            if i < repeticiones - 1:
+                time.sleep(delay_escalera)
+
+    def _lanzar_instancia_efecto(self, filtro, dur, volumen, sub_tipo, sem, apply_mute, exclude_pids):
         try:
-            for i in range(repeticiones):
-                proc = subprocess.Popen(
-                    [sys.executable, "core/gift_anim.py", filtro, str(dur), str(volumen)],
+            if apply_mute:
+                self.smart_mute_system_audio(exclude_pids=exclude_pids)
+
+            # Identificar el módulo real y el sub_tipo
+            if filtro.startswith("song_"):
+                real_mod = "sonidoR"
+                real_sub_tipo = filtro
+            elif filtro.startswith("video_"):
+                real_mod = "videoR"
+                real_sub_tipo = filtro
+            else:
+                real_mod = filtro
+                real_sub_tipo = sub_tipo
+
+            try:
+                import importlib
+                nombre_mod = f"effect.effect_{real_mod}"
+                mod = importlib.import_module(nombre_mod)
+                if hasattr(mod, "ejecutar"):
+                    # LLAMADA BLOQUEANTE PARA EL SLOT
+                    mod.ejecutar(dur * 1000, volumen, real_sub_tipo, 1, self.stage)
+                else:
+                    raise Exception("Módulo no tiene función ejecutar")
+            except Exception as e:
+                print(f"[Panel] Fallo ejecución directa ({real_mod}): {e}")
+                subprocess.Popen(
+                    [sys.executable, "core/gift_anim.py", filtro, real_sub_tipo, str(dur), str(volumen), "1"],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL
-                )
-                if should_mute and i == 0:
-                    self.smart_mute_system_audio(exclude_pids=exclude_pids)
-                proc.wait()
-                if repeticiones > 1: time.sleep(0.1)
-            
-            if should_mute:
-                time.sleep(0.2)
+                ).wait()
+
+            if apply_mute:
+                time.sleep(0.1)
                 self.unmute_system_audio()
         except Exception as e:
-            if should_mute: self.unmute_system_audio()
-            print("Error filtro:", e)
+            if apply_mute: self.unmute_system_audio()
+            print(f"Error en instancia de filtro ({filtro}):", e)
+        finally:
+            sem.release()
 
     # ======================================================
     # MODO TEST
@@ -477,17 +731,45 @@ class MainPanel:
         frame_events.pack(fill="x", padx=10, pady=5)
         ttk.Button(frame_events, text="👤 Simular Follow", command=lambda: self.add_to_queue("follow", ent_test_user.get(), None)).pack(side="left", expand=True, fill="x", padx=2)
 
-        ttk.Label(scrollable_frame, text="🎁 Simular Regalos:", font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=10, pady=(10, 5))
+        # SECCIÓN DE REGALOS CON COMBO
+        frame_header_gifts = ttk.Frame(scrollable_frame)
+        frame_header_gifts.pack(fill="x", padx=10, pady=(10, 5))
+        
+        ttk.Label(frame_header_gifts, text="🎁 Simular Regalos:", font=("Segoe UI", 10, "bold")).pack(side="left")
+        
+        ttk.Label(frame_header_gifts, text="Combo:").pack(side="left", padx=(20, 5))
+        combo_cant = tk.IntVar(value=1)
+        spin_combo = ttk.Spinbox(frame_header_gifts, from_=1, to=100, width=5, textvariable=combo_cant)
+        spin_combo.pack(side="left")
 
         frame_gifts = ttk.Frame(scrollable_frame)
         frame_gifts.pack(fill="both", expand=True, padx=10, pady=5)
 
+        # Obtener lista de regalos vinculados a efectos para resaltado
+        regalos_con_efecto = set()
+        for slot in self.efectos_slots:
+            ev = slot["evento"].get().strip()
+            if ev not in ("follow", "all-gift"):
+                regalos_con_efecto.add(ev)
+
         eventos = self.config_data.get("eventos", [])
         col, row = 0, 0
+        
+        # Estilo para botones con filtro
+        self.style.configure("LinkedGift.TButton", background="#d4edda") # Verde tenue
+
         for gift in eventos:
-            btn = ttk.Button(frame_gifts, text=f"{gift}", width=15,
-                command=lambda g=gift: self.add_to_queue("gift", ent_test_user.get(), None, {"gift": g, "cant": 1}))
+            # Si el regalo tiene efecto, usamos un estilo especial
+            bg_btn = "#d4edda" if gift in regalos_con_efecto else "#f0f0f0"
+            
+            btn = tk.Button(frame_gifts, text=f"{gift}", width=12,
+                bg=bg_btn, activebackground="#c3e6cb", bd=1, relief="raised",
+                font=("Segoe UI", 9),
+                command=lambda g=gift: self.add_to_queue("gift", ent_test_user.get(), None, {"gift": g, "cant": combo_cant.get()}))
+            
             btn.grid(row=row, column=col, padx=2, pady=2)
+            ToolTip(btn).update_text(f"Enviar regalo: {gift}")
+            
             col += 1
             if col > 2: col, row = 0, row + 1
         scrollable_frame.update_idletasks()
@@ -518,12 +800,19 @@ class MainPanel:
                 try: child.config(state="disabled")
                 except: pass
         
-        # Deshabilitar controles de filtros (Botones de agregar/recargar/borrar)
-        self.btn_add_filtro.config(state="disabled")
-        if hasattr(self, 'btn_reload_filtros'):
-            self.btn_reload_filtros.config(state="disabled")
+        # Deshabilitar controles de efectos (Botones de agregar/recargar/borrar)
+        self.btn_add_efecto.config(state="disabled")
+        if hasattr(self, 'btn_reload_efectos'):
+            self.btn_reload_efectos.config(state="disabled")
             
-        for frame in self.frame_filtros.winfo_children():
+        # Deshabilitar pestaña de comandos
+        self.ent_new_cmd.config(state="disabled")
+        for child in self.frame_cmds_list.winfo_children():
+            # Deshabilitar botones X de los slots de comandos
+            for sub in child.winfo_children():
+                if isinstance(sub, tk.Button): sub.config(state="disabled")
+
+        for frame in self.frame_efectos.winfo_children():
             if isinstance(frame, ttk.Frame):
                 for widget in frame.winfo_children():
                     # Deshabilitar Combobox, Entries, Botones (Borrar) y Checkbuttons
@@ -540,19 +829,28 @@ class MainPanel:
                 try: child.config(state="normal")
                 except: pass
         
-        # Habilitar controles de filtros
-        self.btn_add_filtro.config(state="normal")
-        if hasattr(self, 'btn_reload_filtros'):
-            self.btn_reload_filtros.config(state="normal")
+        # Habilitar controles de efectos
+        self.btn_add_efecto.config(state="normal")
+        if hasattr(self, 'btn_reload_efectos'):
+            self.btn_reload_efectos.config(state="normal")
             
-        for frame in self.frame_filtros.winfo_children():
+        # Habilitar pestaña de comandos
+        self.ent_new_cmd.config(state="normal")
+        for child in self.frame_cmds_list.winfo_children():
+            for sub in child.winfo_children():
+                if isinstance(sub, tk.Button): sub.config(state="normal")
+
+        for frame in self.frame_efectos.winfo_children():
             if isinstance(frame, ttk.Frame):
                 for widget in frame.winfo_children():
                     if isinstance(widget, (ttk.Button, ttk.Combobox, ttk.Entry, ttk.Checkbutton)):
-                        try: widget.config(state="normal")
+                        try:
+                            # Los Combobox deben volver a 'readonly', no 'normal'
+                            st = "readonly" if isinstance(widget, ttk.Combobox) else "normal"
+                            widget.config(state=st)
                         except: pass
 
-    def detectar_filtros(self):
+    def detectar_efectos(self):
         if not os.path.exists("core/gift_anim.py"): return []
         try:
             result = subprocess.run([sys.executable, "core/gift_anim.py", "--list-effects"], capture_output=True, text=True, timeout=10)
@@ -562,54 +860,68 @@ class MainPanel:
         return []
 
     # 👇 NUEVA FUNCIÓN PARA RECARGAR EFECTOS
-    def recargar_filtros(self):
+    def recargar_efectos(self):
         self.log("[Sistema] Recargando lista de efectos...")
-        nuevos_efectos = self.detectar_filtros()
+        nuevos_efectos = self.detectar_efectos()
         
         if not nuevos_efectos:
             self.log("[Sistema] No se encontraron efectos en gift_anim.py")
             return
             
-        self.filtros_disponibles = nuevos_efectos
+        self.efectos_disponibles = nuevos_efectos
         
-        # Actualizar los dropdowns de los filtros existentes
+        # Actualizar los dropdowns de los efectos existentes
         actualizados = 0
-        for slot in self.filtros_slots:
+        for slot in self.efectos_slots:
             try:
-                combo_widget = slot.get("combo_filtro")
+                combo_widget = slot.get("combo_efecto")
                 if combo_widget:
                     # Guardamos el valor actual
                     valor_actual = combo_widget.get()
                     # Actualizamos la lista de valores
-                    combo_widget['values'] = self.filtros_disponibles
+                    combo_widget['values'] = self.efectos_disponibles
                     # Si el valor actual sigue existiendo, lo dejamos, si no, se queda el viejo visualmente pero es responsabilidad del usuario
                     # O podríamos forzar al primero si no está:
-                    if valor_actual not in self.filtros_disponibles:
+                    if valor_actual not in self.efectos_disponibles:
                         combo_widget.current(0)
+                    # Sincronizar ToolTip
+                    if "tt_efecto" in slot:
+                        slot["tt_efecto"].update_text(combo_widget.get())
                     actualizados += 1
             except Exception as e:
-                print(f"Error actualizando filtro: {e}")
+                print(f"Error actualizando efecto: {e}")
                 
-        self.log(f"[Sistema] Se detectaron {len(self.filtros_disponibles)} efectos disponibles y se actualizaron {actualizados} filtros.")
+        self.log(f"[Sistema] Se detectaron {len(self.efectos_disponibles)} efectos disponibles y se actualizaron {actualizados} efectos.")
 
-    def agregar_filtro_slot(self, ev_val="follow", filtro_val=None, duracion_val="5", mute_val=False):
-        if not self.filtros_disponibles: return
-        fila = ttk.Frame(self.frame_filtros)
+    def agregar_efecto_slot(self, ev_val="follow", filtro_val=None, duracion_val="5", mute_val=False):
+        if not self.efectos_disponibles: return
+        fila = ttk.Frame(self.frame_efectos)
         fila.pack(fill="x", pady=2)
         
         evento = tk.StringVar(value=ev_val)
-        filtro = tk.StringVar(value=filtro_val or self.filtros_disponibles[0])
+        filtro = tk.StringVar(value=filtro_val or self.efectos_disponibles[0])
         duracion = tk.StringVar(value=duracion_val)
         mute_var = tk.BooleanVar(value=mute_val)
         
-        valores_eventos = ["follow", "all-gift"] + self.config_data["eventos"]
+        valores_eventos = ["follow", "all-gift"] + self.config_data["eventos"] + self.config_data.get("comandos", [])
 
-        ttk.Combobox(fila, values=valores_eventos, width=12, textvariable=evento, state="readonly").pack(side="left", padx=2)
+        cb_evento = ttk.Combobox(fila, values=valores_eventos, width=12, textvariable=evento, state="readonly")
+        cb_evento.pack(side="left", padx=2)
         ttk.Label(fila, text="➔").pack(side="left")
         
+        # Tooltip para Evento
+        tt_evento = ToolTip(cb_evento)
+        tt_evento.update_text(evento.get())
+        cb_evento.bind("<<ComboboxSelected>>", lambda e, tt=tt_evento, v=evento: tt.update_text(v.get()))
+
         # Guardamos referencia del widget para poder actualizarlo al recargar
-        combo_filtro = ttk.Combobox(fila, values=self.filtros_disponibles, width=10, textvariable=filtro, state="readonly")
-        combo_filtro.pack(side="left", padx=2)
+        combo_efecto = ttk.Combobox(fila, values=self.efectos_disponibles, width=10, textvariable=filtro, state="readonly")
+        combo_efecto.pack(side="left", padx=2)
+        
+        # Tooltip para Efecto
+        tt_efecto = ToolTip(combo_efecto)
+        tt_efecto.update_text(filtro.get())
+        combo_efecto.bind("<<ComboboxSelected>>", lambda e, tt=tt_efecto, v=filtro: tt.update_text(v.get()))
         
         ttk.Label(fila, text="durante").pack(side="left")
         dur_entry = ttk.Entry(fila, width=4, textvariable=duracion)
@@ -621,31 +933,32 @@ class MainPanel:
 
         slot_ref = {
             "evento": evento, "filtro": filtro, "duracion": duracion, 
-            "combo_filtro": combo_filtro, # 👈 Referencia añadida
+            "combo_efecto": combo_efecto, "combo_evento": cb_evento,
+            "tt_efecto": tt_efecto, "tt_evento": tt_evento,
             "mute_var": mute_var, 
             "fila": fila, "dur_entry": dur_entry
         }
-        self.filtros_slots.append(slot_ref)
-        ttk.Button(fila, text="❌", width=3, command=lambda s=slot_ref: self.eliminar_filtro_slot(s)).pack(side="right", padx=(10, 0))
-        self.root.after(10, self.toggle_scroll_filtros)
+        self.efectos_slots.append(slot_ref)
+        ttk.Button(fila, text="❌", width=3, command=lambda s=slot_ref: self.eliminar_efecto_slot(s)).pack(side="right", padx=(10, 0))
+        self.root.after(10, self.toggle_scroll_efectos)
 
-    def eliminar_filtro_slot(self, slot_a_eliminar):
+    def eliminar_efecto_slot(self, slot_a_eliminar):
         # Comprobar si está corriendo antes de eliminar (doble seguridad)
         if self.is_running:
             return 
             
-        if slot_a_eliminar in self.filtros_slots:
-            self.filtros_slots.remove(slot_a_eliminar)
+        if slot_a_eliminar in self.efectos_slots:
+            self.efectos_slots.remove(slot_a_eliminar)
             slot_a_eliminar["fila"].destroy()
             self.guardar_configuracion_actual()
-            self.root.after(10, self.toggle_scroll_filtros)
+            self.root.after(10, self.toggle_scroll_efectos)
 
-    def validar_filtros(self):
+    def validar_efectos(self):
         errores = []
-        for slot in self.filtros_slots:
+        for slot in self.efectos_slots:
             filtro = slot["filtro"].get()
             duracion_str = slot["duracion"].get()
-            if filtro not in self.filtros_disponibles: continue
+            if filtro not in self.efectos_disponibles: continue
             if not duracion_str.isdigit():
                 errores.append(f"Duración inválida para '{filtro}': '{duracion_str}'")
                 continue
@@ -697,7 +1010,9 @@ class MainPanel:
             "read_emojis": self.read_emojis.get(),
             "filters_enabled": self.filters_enabled.get(),
             "allow_effects_mute": self.allow_effects_mute.get(),
-            "filtros": self.exportar_filtros(), "reconnect_interval": self.reconnect_interval.get(),
+            "filtros": self.exportar_efectos(),
+            "comandos": self.config_data.get("comandos", []),
+            "reconnect_interval": self.reconnect_interval.get(),
             "reconnect_attempts": self.reconnect_attempts.get(),
             "volume_tts": self.volume_tts_val.get(), "volume_effects": self.volume_effects_val.get()
         })
@@ -707,24 +1022,24 @@ class MainPanel:
             self.save_persistent_data()
         except Exception as e: print("Error guardar config:", e)
 
-    def exportar_filtros(self):
-        filtros_validos = []
-        for s in self.filtros_slots:
+    def exportar_efectos(self):
+        efectos_validos = []
+        for s in self.efectos_slots:
             filtro_nombre = s["filtro"].get()
-            if filtro_nombre and filtro_nombre in self.filtros_disponibles:
-                filtros_validos.append({
+            if filtro_nombre and filtro_nombre in self.efectos_disponibles:
+                efectos_validos.append({
                     "evento": s["evento"].get(), 
                     "filtro": filtro_nombre, 
                     "duracion": s["duracion"].get(),
                     "mute_background": s["mute_var"].get()
                 })
-        return filtros_validos
+        return efectos_validos
 
-    def cargar_filtros(self):
+    def cargar_efectos(self):
         for f in self.config_data.get("filtros", []):
             filtro_val = f.get("filtro")
-            if filtro_val and filtro_val in self.filtros_disponibles:
-                self.agregar_filtro_slot(
+            if filtro_val and filtro_val in self.efectos_disponibles:
+                self.agregar_efecto_slot(
                     ev_val=f.get("evento", "follow"), 
                     filtro_val=filtro_val, 
                     duracion_val=f.get("duracion", "5"),
@@ -772,18 +1087,26 @@ class MainPanel:
                 continue
             try:
                 texto = None
+                texto_tts = None
                 is_priority = ev_type in ("follow", "gift")
                 voice_allowed = False
 
                 if ev_type == "comment":
                     if self.voice_chat.get():
                         texto = content.strip() if content else None
+                        texto_tts = texto
+                        if texto_tts and texto_tts.startswith("!"):
+                            for cmd in self.config_data.get("comandos", []):
+                                if texto_tts.startswith(cmd):
+                                    texto_tts = texto_tts[len(cmd):].strip()
+                                    break
                         voice_allowed = True
                 elif ev_type == "follow":
                     if self.voice_follow.get():
                         template = self.ent_msg_follow.get().strip()
                         if template:
                             texto = template.format(user=user)
+                            texto_tts = texto
                             voice_allowed = True
                 elif ev_type == "gift":
                     nombre_gift = vars_dict.get("gift", "").strip()
@@ -793,6 +1116,7 @@ class MainPanel:
                         template = self.ent_msg_gift.get().strip()
                         if template:
                             texto = template.format(user=vars_dict.get("user", user), gift=nombre_gift, cant=cantidad)
+                            texto_tts = texto
                             voice_allowed = True
 
                 if texto or (ev_type in ("follow", "gift")):
@@ -802,7 +1126,7 @@ class MainPanel:
 
                 if self.filters_enabled.get():
                     efectos_pendientes = []
-                    for slot in self.filtros_slots:
+                    for slot in self.efectos_slots:
                         ev = slot["evento"].get().strip()
                         if ev_type == "follow" and ev == "follow":
                             efectos_pendientes.append((slot["filtro"].get(), slot["duracion"].get(), 1, slot["mute_var"].get()))
@@ -811,20 +1135,26 @@ class MainPanel:
                             if ev == "all-gift" or ev == nombre_regalo_evento:
                                 cantidad = vars_dict.get("cant", 1)
                                 efectos_pendientes.append((slot["filtro"].get(), slot["duracion"].get(), cantidad, slot["mute_var"].get()))
+                        elif ev_type == "comment" and content:
+                            msg_clean = content.strip()
+                            if msg_clean.startswith("!"):
+                                # Trigger si empieza por el comando (ej: !bola8 hola)
+                                if ev == msg_clean or msg_clean.startswith(ev + " "):
+                                    efectos_pendientes.append((slot["filtro"].get(), slot["duracion"].get(), 1, slot["mute_var"].get()))
                     
                     if efectos_pendientes:
                         for filtro, duracion, repeticiones, apply_mute in efectos_pendientes:
                             self.ejecutar_filtro(filtro, duracion, repeticiones, apply_mute=apply_mute)
                         
-                        if texto and voice_allowed:
+                        if texto_tts and voice_allowed:
                             time.sleep(1.0)
-                            self.play_audio(texto)
+                            self.play_audio(texto_tts)
                     else:
-                        if texto and voice_allowed:
-                            self.play_audio(texto)
+                        if texto_tts and voice_allowed:
+                            self.play_audio(texto_tts)
                 else:
-                    if texto and voice_allowed:
-                        self.play_audio(texto)
+                    if texto_tts and voice_allowed:
+                        self.play_audio(texto_tts)
 
                 debe_aplicar_delay = True
                 if is_priority and self.skip_delay.get(): debe_aplicar_delay = False
@@ -867,7 +1197,7 @@ class MainPanel:
     def toggle_bot(self):
         if self.is_testing: return
         if not self.is_running:
-            errores = self.validar_filtros()
+            errores = self.validar_efectos()
             if errores: self.mostrar_error_validacion(errores); return
             self.is_running = True
             self.btn_toggle.config(text="⏹ DETENER LIVE")
@@ -911,9 +1241,10 @@ class MainPanel:
                 with open(self.config_file, "r", encoding="utf-8") as f:
                     loaded = json.load(f)
                     for key, value in loaded.items():
-                        if key != "eventos": self.config_data[key] = value
+                        if key not in ("eventos", "comandos"): self.config_data[key] = value
                     self.config_data["allow_effects_mute"] = loaded.get("allow_effects_mute", True)
                     self.config_data["read_emojis"] = loaded.get("read_emojis", True)
+                    self.config_data["comandos"] = loaded.get("comandos", ["!bola8"])
             except: pass
 
     def load_persistent_data(self):
@@ -944,7 +1275,11 @@ class MainPanel:
             "read_emojis": self.read_emojis.get(),
             "filters_enabled": self.filters_enabled.get(),
             "allow_effects_mute": self.allow_effects_mute.get(),
-            "filtros": self.exportar_filtros(), "reconnect_interval": self.reconnect_interval.get(),
+            "max_concurrency": self.max_concurrency.get(),
+            "delay_combo": self.delay_combo.get(),
+            "filtros": self.exportar_efectos(),
+            "comandos": self.config_data.get("comandos", []),
+            "reconnect_interval": self.reconnect_interval.get(),
             "reconnect_attempts": self.reconnect_attempts.get(),
             "volume_tts": self.volume_tts_val.get(), "volume_effects": self.volume_effects_val.get()
         })

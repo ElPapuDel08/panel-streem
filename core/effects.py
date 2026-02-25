@@ -123,8 +123,9 @@ class TestPanel:
             dur = self.tiempo_global.get()
             vol = self.volumen_global.get()
             
+            # Formato estándar de 5 argumentos: [efecto, sub_tipo, segundos, volumen, cantidad]
             subprocess.Popen(
-                [sys.executable, "core/gift_anim.py", nombre, str(dur), str(vol)],
+                [sys.executable, "core/gift_anim.py", nombre, "NULL", str(dur), str(vol), "1"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL
             )
