@@ -13,6 +13,7 @@ import sys
 import traceback
 import re
 import socket
+import emoji
 from tkinter import messagebox
 
 # === CONFIGURACIÓN DE RUTAS ===
@@ -23,6 +24,7 @@ if RAIZ not in sys.path:
 
 # Importación del scraper
 from content_tiktok import TikTokScraper
+from core.utils import resource_path, external_path, get_python_executable
 from core.ui.plugins import WorkshopManager
 
 # ===== IMPORTACIÓN OPCIONAL DE PYCAW =====
@@ -86,8 +88,8 @@ class MainPanel:
         self.is_running = False
         self.is_testing = False
         self.test_window = None
-        self.config_file = "core/profile/config.json"
-        self.data_file = "core/data.json"
+        self.config_file = external_path("core/profile/config.json")
+        self.data_file = external_path("core/data.json")
         
         # Lista para guardar sesiones silenciadas
         self.muted_sessions = [] 
@@ -118,17 +120,22 @@ class MainPanel:
         self.load_config()
         self.setup_styles()
 
-        # Variables Tkinter
+        # Variables de Configuración (Tkinter)
+        self.delay_val = tk.DoubleVar(value=self.config_data["delay"])
+        self.skip_delay = tk.BooleanVar(value=self.config_data["skip_delay_priority"])
         self.voice_chat = tk.BooleanVar(value=self.config_data["voice_chat"])
         self.voice_follow = tk.BooleanVar(value=self.config_data["voice_follow"])
         self.voice_gift = tk.BooleanVar(value=self.config_data["voice_gift"])
         self.read_emojis = tk.BooleanVar(value=self.config_data.get("read_emojis", True))
         self.filters_enabled = tk.BooleanVar(value=self.config_data["filters_enabled"])
         self.allow_effects_mute = tk.BooleanVar(value=self.config_data.get("allow_effects_mute", True))
-        
-        # Concurrencia y Semáforos
+        self.reconnect_interval = tk.IntVar(value=self.config_data["reconnect_interval"])
+        self.reconnect_attempts = tk.IntVar(value=self.config_data["reconnect_attempts"])
+        self.volume_tts_val = tk.IntVar(value=self.config_data["volume_tts"])
+        self.volume_effects_val = tk.IntVar(value=self.config_data["volume_effects"])
         self.max_concurrency = tk.IntVar(value=self.config_data.get("max_concurrency", 3))
         self.delay_combo = tk.DoubleVar(value=self.config_data.get("delay_combo", 1.0))
+        
         self.semaphores = {} # Se llenará dinámicamente por tipo de efecto
 
         # Efectos y UI
@@ -295,10 +302,8 @@ class MainPanel:
         self.ent_msg_gift.grid(row=3, column=0, columnspan=2, sticky="ew", padx=5, pady=(0, 10))
 
         ttk.Label(frame_msg, text="Delay (segundos):").grid(row=4, column=0, sticky="w", padx=5, pady=2)
-        self.delay_val = tk.DoubleVar(value=self.config_data["delay"])
         ttk.Spinbox(frame_msg, from_=0, to=10, increment=0.5, width=10, textvariable=self.delay_val).grid(row=4, column=1, sticky="e", padx=5, pady=2)
         
-        self.skip_delay = tk.BooleanVar(value=self.config_data["skip_delay_priority"])
         ttk.Checkbutton(frame_msg, text="Priorizar Regalos/Follows (Saltar delay)", variable=self.skip_delay).grid(row=5, column=0, columnspan=2, sticky="w", padx=5, pady=5)
 
         # --- SECCIÓN 2: LECTURA DE VOZ ---
@@ -318,12 +323,10 @@ class MainPanel:
         frame_vol.pack(fill="x", pady=5)
 
         ttk.Label(frame_vol, text="Volumen Voz (TTS):").grid(row=0, column=0, sticky="w", padx=5, pady=2)
-        self.volume_tts_val = tk.IntVar(value=self.config_data["volume_tts"])
         vol_tts_scale = ttk.Scale(frame_vol, from_=0, to=100, orient="horizontal", variable=self.volume_tts_val)
         vol_tts_scale.grid(row=0, column=1, sticky="ew", padx=5, pady=2)
 
         ttk.Label(frame_vol, text="Volumen Efectos:").grid(row=1, column=0, sticky="w", padx=5, pady=2)
-        self.volume_effects_val = tk.IntVar(value=self.config_data["volume_effects"])
         vol_eff_scale = ttk.Scale(frame_vol, from_=0, to=100, orient="horizontal", variable=self.volume_effects_val)
         vol_eff_scale.grid(row=1, column=1, sticky="ew", padx=5, pady=2)
         
@@ -340,11 +343,9 @@ class MainPanel:
         ttk.Checkbutton(grid_sys, text="🔇 Silenciar Fondo al reproducir efectos", variable=self.allow_effects_mute).grid(row=1, column=0, sticky="w", padx=5)
 
         ttk.Label(grid_sys, text="Reconexión (seg):").grid(row=2, column=0, sticky="w", padx=5, pady=2)
-        self.reconnect_interval = tk.IntVar(value=self.config_data["reconnect_interval"])
         ttk.Spinbox(grid_sys, from_=1, to=60, width=5, textvariable=self.reconnect_interval).grid(row=2, column=1, sticky="e", padx=5, pady=2)
 
         ttk.Label(grid_sys, text="Intentos máximos:").grid(row=3, column=0, sticky="w", padx=5, pady=2)
-        self.reconnect_attempts = tk.IntVar(value=self.config_data["reconnect_attempts"])
         ttk.Spinbox(grid_sys, from_=1, to=100, width=5, textvariable=self.reconnect_attempts).grid(row=3, column=1, sticky="e", padx=5, pady=2)
 
         # --- SECCIÓN 5: OPTIMIZACIÓN Y SLOTS ---
@@ -645,7 +646,7 @@ class MainPanel:
             except Exception as e:
                 print(f"[Panel] Fallo ejecución directa ({real_mod}): {e}")
                 subprocess.Popen(
-                    [sys.executable, "core/gift_anim.py", filtro, real_sub_tipo, str(dur), str(volumen), "1"],
+                    [get_python_executable(), "core/gift_anim.py", filtro, real_sub_tipo, str(dur), str(volumen), "1"],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL
                 ).wait()
@@ -853,7 +854,7 @@ class MainPanel:
     def detectar_efectos(self):
         if not os.path.exists("core/gift_anim.py"): return []
         try:
-            result = subprocess.run([sys.executable, "core/gift_anim.py", "--list-effects"], capture_output=True, text=True, timeout=10)
+            result = subprocess.run([get_python_executable(), "core/gift_anim.py", "--list-effects"], capture_output=True, text=True, timeout=10)
             if result.returncode == 0:
                 return [line.strip() for line in result.stdout.strip().splitlines() if line.strip() and not line.startswith("pygame")]
         except: pass
@@ -1049,24 +1050,13 @@ class MainPanel:
     # ======================================================
     # MANEJO DE AUDIO TTS Y EMOJIS
     # ======================================================
-    EMOJI_PATTERN = re.compile(
-        "["
-        u"\U0001F600-\U0001F64F"
-        u"\U0001F300-\U0001F5FF"
-        u"\U0001F680-\U0001F6FF"
-        u"\U0001F1E0-\U0001F1FF"
-        u"\U00002702-\U000027B0"
-        u"\U000024C2-\U0001F251"
-        "]+", flags=re.UNICODE
-    )
-
     def play_audio(self, text):
         if not self.is_running: return
         try:
             if not self.read_emojis.get():
-                text = self.EMOJI_PATTERN.sub(r'', text)
+                text = emoji.replace_emoji(text, replace='')
             
-            filename = f"tts_{int(time.time() * 1000)}.mp3"
+            filename = external_path(f"tts_{int(time.time() * 1000)}.mp3")
             gTTS(text=text, lang='es').save(filename)
             pygame.mixer.music.load(filename)
             pygame.mixer.music.set_volume(self.volume_tts_val.get() / 100.0)
@@ -1227,8 +1217,8 @@ class MainPanel:
             except: break
 
     def load_config(self):
-        os.makedirs("core/profile", exist_ok=True)
-        os.makedirs("core", exist_ok=True)
+        os.makedirs(external_path("core/profile"), exist_ok=True)
+        os.makedirs(external_path("core"), exist_ok=True)
         self.load_persistent_data()
         if not os.path.exists(self.config_file):
             try:

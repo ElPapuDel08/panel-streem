@@ -1,9 +1,14 @@
-# test_panel.py
+import os
+import sys
+import subprocess
 import tkinter as tk
 from tkinter import ttk
-import subprocess
-import sys
-import os
+
+RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if RAIZ not in sys.path:
+    sys.path.insert(0, RAIZ)
+
+from core.utils import get_python_executable
 
 class TestPanel:
     def __init__(self, root):
@@ -24,7 +29,7 @@ class TestPanel:
             return []
         try:
             result = subprocess.run(
-                [sys.executable, "core/gift_anim.py", "--list-effects"],
+                [get_python_executable(), "core/gift_anim.py", "--list-effects"],
                 capture_output=True, text=True, timeout=5
             )
             if result.returncode == 0:
@@ -125,7 +130,7 @@ class TestPanel:
             
             # Formato estándar de 5 argumentos: [efecto, sub_tipo, segundos, volumen, cantidad]
             subprocess.Popen(
-                [sys.executable, "core/gift_anim.py", nombre, "NULL", str(dur), str(vol), "1"],
+                [get_python_executable(), "core/gift_anim.py", nombre, "NULL", str(dur), str(vol), "1"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL
             )

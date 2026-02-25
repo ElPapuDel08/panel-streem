@@ -5,3 +5,9 @@ core/__pycache__/
 effect/__pycache__/
 core/profile/config.json
 log.txt
+build_temp/
+fell/
+build_log.txt
+build.bat
+*.spec
+*.pyz
