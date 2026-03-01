@@ -114,7 +114,8 @@ class MainPanel:
             "volume_tts": 100,
             "volume_effects": 100,
             "max_concurrency": 3,
-            "delay_combo": 1.0
+            "delay_combo": 1.0,
+            "tts_mode": "all"
         }
 
         self.load_config()
@@ -135,6 +136,7 @@ class MainPanel:
         self.volume_effects_val = tk.IntVar(value=self.config_data["volume_effects"])
         self.max_concurrency = tk.IntVar(value=self.config_data.get("max_concurrency", 3))
         self.delay_combo = tk.DoubleVar(value=self.config_data.get("delay_combo", 1.0))
+        self.tts_mode = tk.StringVar(value=self.config_data.get("tts_mode", "all"))
         
         self.semaphores = {} # Se llenará dinámicamente por tipo de efecto
 
@@ -318,6 +320,12 @@ class MainPanel:
         ttk.Checkbutton(grid_voice, text="🔊 Leer Regalos", variable=self.voice_gift).grid(row=1, column=0, sticky="w", padx=5)
         ttk.Checkbutton(grid_voice, text="😎 Leer Emojis", variable=self.read_emojis).grid(row=1, column=1, sticky="w", padx=5)
 
+        ttk.Label(frame_voice, text="Modo lectura de Chat:").pack(anchor="w", padx=10, pady=(5, 0))
+        mode_frame = ttk.Frame(frame_voice)
+        mode_frame.pack(fill="x", padx=10, pady=5)
+        ttk.Radiobutton(mode_frame, text="Leer todo", variable=self.tts_mode, value="all").pack(side="left", padx=5)
+        ttk.Radiobutton(mode_frame, text="Solo '!s'", variable=self.tts_mode, value="command").pack(side="left", padx=5)
+
         # --- SECCIÓN 3: VOLUMEN ---
         frame_vol = ttk.LabelFrame(main_content, text=" Control de Volumen ")
         frame_vol.pack(fill="x", pady=5)
@@ -432,6 +440,11 @@ class MainPanel:
         # Asegurar prefijo !
         full_cmd = f"!{cmd}" if not cmd.startswith("!") else cmd
         
+        # Comando reservado !s
+        if full_cmd.lower() == "!s":
+            messagebox.showwarning("Comando Reservado", "El comando '!s' está reservado para el modo de lectura especial.")
+            return
+
         if full_cmd not in self.config_data["comandos"]:
             self.config_data["comandos"].append(full_cmd)
             self.ent_new_cmd.delete(0, tk.END)
@@ -575,16 +588,16 @@ class MainPanel:
     # ======================================================
     # EJECUCIÓN DE FILTROS
     # ======================================================
-    def ejecutar_filtro(self, filtro, duracion, repeticiones=1, apply_mute=False, sub_tipo="NULL"):
+    def ejecutar_filtro(self, filtro, duracion, repeticiones=1, apply_mute=False, sub_tipo="NULL", user_data=""):
         """Lanza el efecto en un hilo separado para no bloquear la interfaz."""
         thread = threading.Thread(
             target=self._ejecutar_filtro_thread,
-            args=(filtro, duracion, repeticiones, apply_mute, sub_tipo),
+            args=(filtro, duracion, repeticiones, apply_mute, sub_tipo, user_data),
             daemon=True
         )
         thread.start()
 
-    def _ejecutar_filtro_thread(self, filtro, duracion, repeticiones, apply_mute, sub_tipo):
+    def _ejecutar_filtro_thread(self, filtro, duracion, repeticiones, apply_mute, sub_tipo, user_data):
         if not os.path.exists("core/gift_anim.py"): return
         
         repeticiones = int(repeticiones)
@@ -610,7 +623,7 @@ class MainPanel:
             # sin bloquear el bucle de "escalera"
             threading.Thread(
                 target=self._lanzar_instancia_efecto,
-                args=(filtro, dur, volumen, sub_tipo, sem, should_mute, exclude_pids),
+                args=(filtro, dur, volumen, sub_tipo, sem, should_mute, exclude_pids, user_data),
                 daemon=True
             ).start()
 
@@ -618,7 +631,7 @@ class MainPanel:
             if i < repeticiones - 1:
                 time.sleep(delay_escalera)
 
-    def _lanzar_instancia_efecto(self, filtro, dur, volumen, sub_tipo, sem, apply_mute, exclude_pids):
+    def _lanzar_instancia_efecto(self, filtro, dur, volumen, sub_tipo, sem, apply_mute, exclude_pids, user_data=""):
         try:
             if apply_mute:
                 self.smart_mute_system_audio(exclude_pids=exclude_pids)
@@ -639,14 +652,18 @@ class MainPanel:
                 nombre_mod = f"effect.effect_{real_mod}"
                 mod = importlib.import_module(nombre_mod)
                 if hasattr(mod, "ejecutar"):
-                    # LLAMADA BLOQUEANTE PARA EL SLOT
-                    mod.ejecutar(dur * 1000, volumen, real_sub_tipo, 1, self.stage)
+                    # LLAMADA BLOQUEANTE PARA EL SLOT (pasamos lienzo y metadatos)
+                    try:
+                        mod.ejecutar(dur * 1000, volumen, real_sub_tipo, 1, self.stage, user_data)
+                    except TypeError:
+                        # Fallback si el efecto no ha sido actualizado al 6to argumento
+                        mod.ejecutar(dur * 1000, volumen, real_sub_tipo, 1, self.stage)
                 else:
                     raise Exception("Módulo no tiene función ejecutar")
             except Exception as e:
                 print(f"[Panel] Fallo ejecución directa ({real_mod}): {e}")
                 subprocess.Popen(
-                    [get_python_executable(), "core/gift_anim.py", filtro, real_sub_tipo, str(dur), str(volumen), "1"],
+                    [get_python_executable(), "core/gift_anim.py", filtro, real_sub_tipo, str(dur), str(volumen), "1", user_data],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL
                 ).wait()
@@ -1015,7 +1032,8 @@ class MainPanel:
             "comandos": self.config_data.get("comandos", []),
             "reconnect_interval": self.reconnect_interval.get(),
             "reconnect_attempts": self.reconnect_attempts.get(),
-            "volume_tts": self.volume_tts_val.get(), "volume_effects": self.volume_effects_val.get()
+            "volume_tts": self.volume_tts_val.get(), "volume_effects": self.volume_effects_val.get(),
+            "tts_mode": self.tts_mode.get()
         })
         try:
             with open(self.config_file, "w", encoding="utf-8") as f:
@@ -1083,14 +1101,25 @@ class MainPanel:
 
                 if ev_type == "comment":
                     if self.voice_chat.get():
-                        texto = content.strip() if content else None
-                        texto_tts = texto
-                        if texto_tts and texto_tts.startswith("!"):
-                            for cmd in self.config_data.get("comandos", []):
-                                if texto_tts.startswith(cmd):
-                                    texto_tts = texto_tts[len(cmd):].strip()
-                                    break
-                        voice_allowed = True
+                        msg_clean = content.strip() if content else ""
+                        modo = self.tts_mode.get()
+                        
+                        if modo == "command":
+                            # Solo leer si empieza con !s
+                            if msg_clean.lower().startswith("!s "):
+                                texto_tts = msg_clean[3:].strip() # Quitar "!s "
+                                texto = content # Loguear original
+                                voice_allowed = True
+                        else:
+                            # Modo normal: leer todo
+                            texto = msg_clean
+                            texto_tts = texto
+                            if texto_tts and texto_tts.startswith("!"):
+                                for cmd in self.config_data.get("comandos", []):
+                                    if texto_tts.startswith(cmd):
+                                        texto_tts = texto_tts[len(cmd):].strip()
+                                        break
+                            voice_allowed = True
                 elif ev_type == "follow":
                     if self.voice_follow.get():
                         template = self.ent_msg_follow.get().strip()
@@ -1133,8 +1162,22 @@ class MainPanel:
                                     efectos_pendientes.append((slot["filtro"].get(), slot["duracion"].get(), 1, slot["mute_var"].get()))
                     
                     if efectos_pendientes:
+                        # Construir mensaje descriptivo para el efecto basándose en el evento
+                        desc_mensaje = ""
+                        if ev_type == "comment":
+                            desc_mensaje = content
+                        elif ev_type == "gift":
+                            template = self.ent_msg_gift.get().strip() or "{user} envió {cant} {gift}"
+                            desc_mensaje = template.format(user=user, gift=vars_dict.get("gift", "regalo"), cant=vars_dict.get("cant", 1))
+                        elif ev_type == "follow":
+                            template = self.ent_msg_follow.get().strip() or "¡{user} nos sigue!"
+                            desc_mensaje = template.format(user=user)
+                        
+                        # Formato estandarizado: Usuario|Mensaje_Completo
+                        u_data = f"{user}|{desc_mensaje}"
+
                         for filtro, duracion, repeticiones, apply_mute in efectos_pendientes:
-                            self.ejecutar_filtro(filtro, duracion, repeticiones, apply_mute=apply_mute)
+                            self.ejecutar_filtro(filtro, duracion, repeticiones, apply_mute=apply_mute, user_data=u_data)
                         
                         if texto_tts and voice_allowed:
                             time.sleep(1.0)

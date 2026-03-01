@@ -61,10 +61,23 @@ def main():
     sub_tipo = sys.argv[2] if len(sys.argv) > 2 else 'NULL'
     duracion_seg = int(sys.argv[3]) if len(sys.argv) > 3 else 0
     volumen = int(sys.argv[4]) if len(sys.argv) > 4 else 100
-    cantidad = int(sys.argv[5]) if len(sys.argv) > 5 else 1
+    
+    # Manejo flexible de cantidad y user_data
+    cantidad = 1
+    user_data = ""
+    
+    if len(sys.argv) > 5:
+        if sys.argv[5].isdigit():
+            cantidad = int(sys.argv[5])
+            user_data = sys.argv[6] if len(sys.argv) > 6 else ""
+        else:
+            # Si el 5to argumento no es número, asumimos que es user_data
+            user_data = sys.argv[5]
+            cantidad = 1
+    
     duracion_ms = duracion_seg * 1000
 
-    payload_list = [nombre_efecto, sub_tipo, duracion_seg, volumen, cantidad]
+    payload_list = [nombre_efecto, sub_tipo, duracion_seg, volumen, cantidad, user_data]
     
     # === MODO STANDALONE ===
     # El panel ahora maneja los efectos internamente sin necesidad de Sockets/UDP.
@@ -81,7 +94,12 @@ def main():
 
     try:
         # Modo Standalone (sin Stage persistente)
-        modulo.ejecutar(duracion_ms, volumen, sub_tipo, cantidad)
+        # Intentamos pasar el 6to argumento si la función lo soporta (vía introspección o catch)
+        try:
+            modulo.ejecutar(duracion_ms, volumen, sub_tipo, cantidad, None, user_data)
+        except TypeError:
+            # Fallback si el módulo no acepta el argumento user_data todavía
+            modulo.ejecutar(duracion_ms, volumen, sub_tipo, cantidad)
     except Exception as e:
         print(f"❌ Error inesperado en '{nombre_efecto}': {e}", file=sys.stderr)
         sys.exit(1)
