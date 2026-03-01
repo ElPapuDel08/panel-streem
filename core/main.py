@@ -1,13 +1,27 @@
-# main.py
 import sys
 import os
+
+# Determinar la ruta base (raíz del proyecto o carpeta del EXE)
+if getattr(sys, 'frozen', False):
+    # Si estamos en el EXE, la raíz es la carpeta donde está el .exe
+    base_path = os.path.dirname(sys.executable)
+else:
+    # Si estamos ejecutando el script, la raíz es la carpeta padre de 'core'
+    base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# PRIORIZAR ARCHIVOS EXTERNOS:
+# Agregamos la ruta base al principio de sys.path para que Python prefiera
+# cargar los archivos .py de la carpeta física antes que los empaquetados en el EXE.
+if base_path not in sys.path:
+    sys.path.insert(0, base_path)
+
 import time
 import traceback
 import tkinter as tk
-from tkinter import messagebox  # 👈 Importamos messagebox para diálogos nativos
+from tkinter import messagebox
 from PIL import Image, ImageTk
 
-# Importamos el panel desde la carpeta ui
+# Ahora la importación buscará primero en la carpeta 'core' externa
 from ui.panel import MainPanel
 
 # ===== MANEJADOR DE ERRORES GLOBAL (ACTUALIZADO) =====

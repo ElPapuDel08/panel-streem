@@ -1033,8 +1033,10 @@ class MainPanel:
             "reconnect_interval": self.reconnect_interval.get(),
             "reconnect_attempts": self.reconnect_attempts.get(),
             "volume_tts": self.volume_tts_val.get(), "volume_effects": self.volume_effects_val.get(),
-            "tts_mode": self.tts_mode.get()
+            "tts_only_s": (self.tts_mode.get() == "command")
         })
+        # Limpiar claves obsoletas o temporales para el JSON
+        config_to_save.pop("tts_mode", None)
         try:
             with open(self.config_file, "w", encoding="utf-8") as f:
                 json.dump(config_to_save, f, indent=4, ensure_ascii=False)
@@ -1278,6 +1280,14 @@ class MainPanel:
                     self.config_data["allow_effects_mute"] = loaded.get("allow_effects_mute", True)
                     self.config_data["read_emojis"] = loaded.get("read_emojis", True)
                     self.config_data["comandos"] = loaded.get("comandos", ["!bola8"])
+                    
+                    # Sincronizar tts_mode interno con tts_only_s del JSON
+                    if "tts_only_s" in loaded:
+                        only_s = loaded["tts_only_s"]
+                        val_str = "command" if only_s else "all"
+                        self.config_data["tts_mode"] = val_str
+                        if hasattr(self, 'tts_mode') and isinstance(self.tts_mode, tk.StringVar):
+                            self.tts_mode.set(val_str)
             except: pass
 
     def load_persistent_data(self):
@@ -1314,8 +1324,11 @@ class MainPanel:
             "comandos": self.config_data.get("comandos", []),
             "reconnect_interval": self.reconnect_interval.get(),
             "reconnect_attempts": self.reconnect_attempts.get(),
-            "volume_tts": self.volume_tts_val.get(), "volume_effects": self.volume_effects_val.get()
+            "volume_tts": self.volume_tts_val.get(), "volume_effects": self.volume_effects_val.get(),
+            "tts_only_s": (self.tts_mode.get() == "command")
         })
+        # Evitar duplicidad en el JSON
+        config_to_save.pop("tts_mode", None)
         try:
             with open(self.config_file, "w", encoding="utf-8") as f:
                 json.dump(config_to_save, f, indent=4, ensure_ascii=False)
