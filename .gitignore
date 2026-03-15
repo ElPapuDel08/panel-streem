@@ -4,6 +4,7 @@ env/
 core/__pycache__/
 effect/__pycache__/
 core/profile/config.json
+core/profile/event_venta.json
 log.txt
 build_temp/
 fell/
@@ -11,3 +12,5 @@ build_log.txt
 build.bat
 *.spec
 *.pyz
+test_*.py
+venta.bat

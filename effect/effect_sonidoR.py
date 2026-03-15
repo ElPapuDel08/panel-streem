@@ -30,7 +30,7 @@ def ejecutar(duracion_ms=None, volumen=100, sub_tipo='NULL', cantidad=1, parent=
             ruta_sonidos = "song"
             if not os.path.exists(ruta_sonidos):
                 return {"error": "Carpeta 'song/' no encontrada."}
-            archivos = [f for f in os.listdir(ruta_sonidos) if f.endswith('.mp3') and f.split('_', 1)[0].isdigit()]
+            archivos = [f for f in os.listdir(ruta_sonidos) if f.endswith('.mp3')]
             if not archivos:
                 return {"error": "No hay sonidos válidos en 'song/'."}
             sonido_elegido = random.choice(archivos)
@@ -57,10 +57,8 @@ def listar_sub_efectos():
     sub_efectos = []
     for f in os.listdir(ruta_sonidos):
         if f.endswith('.mp3'):
-            partes = f.split('_', 1)
-            if partes and partes[0].isdigit():
-                nombre = os.path.splitext(f)[0]
-                sub_efectos.append(f"song_{nombre}")
+            nombre = os.path.splitext(f)[0]
+            sub_efectos.append(f"song_{nombre}")
     
     return sorted(sub_efectos)
 

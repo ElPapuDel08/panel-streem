@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Stage Transparente</title>
+    <style>
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: rgba(0, 0, 0, 0) !important;
+            /* Totalmente transparente */
+        }
+
+        #container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Estilo para las notificaciones web */
+        .web-notif {
+            position: absolute;
+            background: rgba(30, 30, 46, 0.9);
+            border: 2px solid #89b4fa;
+            border-radius: 15px;
+            padding: 15px;
+            color: #cdd6f4;
+            font-family: 'Segoe UI', sans-serif;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            min-width: 300px;
+            animation: slideIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            backdrop-filter: blur(5px);
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: scale(0.8) translateY(20px);
+                opacity: 0;
+            }
+
+            to {
+                transform: scale(1) translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .notif-title {
+            font-weight: bold;
+            color: #89b4fa;
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="container"></div>
+
+    <script src="/eel.js"></script>
+    <script>
+        // Función para mostrar notificaciones estilo web
+        eel.expose(show_notif_web);
+        function show_notif_web(titulo, mensaje, duracion) {
+            const container = document.getElementById('container');
+            const notif = document.createElement('div');
+            notif.className = 'web-notif';
+
+            // Posición aleatoria
+            const x = Math.random() * (window.innerWidth - 350);
+            const y = Math.random() * (window.innerHeight - 150);
+            notif.style.left = x + 'px';
+            notif.style.top = y + 'px';
+
+            notif.innerHTML = `
+                <div class="notif-title">${titulo}</div>
+                <div class="notif-body">${mensaje}</div>
+            `;
+
+            container.appendChild(notif);
+
+            setTimeout(() => {
+                notif.style.opacity = '0';
+                notif.style.transform = 'scale(0.8)';
+                notif.style.transition = 'all 0.5s ease';
+                setTimeout(() => notif.remove(), 500);
+            }, duracion || 5000);
+        }
+    </script>
+</body>
+
+</html>

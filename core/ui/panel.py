@@ -16,6 +16,10 @@ import socket
 import emoji
 from tkinter import messagebox
 
+# === CONFIGURACIÓN GLOBAL DE API ===
+# Cambia esta URL cuando tu software esté en producción
+BASE_URL = "http://localhost:8585"
+
 # === CONFIGURACIÓN DE RUTAS ===
 # De core/ui/panel.py -> core/ui -> core -> raiz
 RAIZ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -26,6 +30,13 @@ if RAIZ not in sys.path:
 from content_tiktok import TikTokScraper
 from core.utils import resource_path, external_path, get_python_executable
 from core.ui.plugins import WorkshopManager
+from core.ui.stage_tk import StageManager
+from core.ui.widgets.tooltips import ToolTip
+from core.ui.widgets.control_tab import ControlTab
+from core.ui.widgets.config_tab import ConfigTab
+from core.ui.widgets.efectos_tab import EfectosTab
+from core.ui.widgets.comandos_tab import ComandosTab
+from core.ui.widgets.info_tab import InfoTab
 
 # ===== IMPORTACIÓN OPCIONAL DE PYCAW =====
 try:
@@ -40,42 +51,6 @@ except Exception:
 # ======================================================
 # CLASE TOOLTIP PARA NOMBRES LARGOS
 # ======================================================
-class ToolTip:
-    def __init__(self, widget):
-        self.widget = widget
-        self.tip_window = None
-        self.text = ""
-        self.widget.bind("<Enter>", self.show_tip)
-        self.widget.bind("<Leave>", self.hide_tip)
-
-    def update_text(self, new_text):
-        self.text = new_text
-
-    def show_tip(self, event=None):
-        if self.tip_window or not self.text:
-            return
-        # Solo mostrar si el widget es un Combobox y el texto es más largo de lo visible
-        # o simplemente mostrarlo siempre para asegurar legibilidad como pidió el usuario.
-        x = self.widget.winfo_rootx() + 20
-        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 5
-        
-        self.tip_window = tw = tk.Toplevel(self.widget)
-        tw.wm_overrideredirect(True)
-        tw.wm_geometry("+%d+%d" % (x, y))
-        tw.attributes("-topmost", True)
-        
-        label = tk.Label(tw, text=self.text, justify=tk.LEFT,
-                         background="#2c3e50", foreground="white", 
-                         relief=tk.SOLID, borderwidth=1,
-                         padx=5, pady=2,
-                         font=("Segoe UI", "9", "normal"))
-        label.pack(ipadx=1)
-
-    def hide_tip(self, event=None):
-        tw = self.tip_window
-        self.tip_window = None
-        if tw:
-            tw.destroy()
 
 class MainPanel:
     def __init__(self, root):
@@ -151,30 +126,11 @@ class MainPanel:
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         threading.Thread(target=self.voice_processor, daemon=True).start()
         
-        # Iniciar Stage (Lienzo persistente)
-        self.setup_stage()
+        # Iniciar StageManager (Maneja la ventana de efectos independiente)
+        self.stage_manager = StageManager(self.root)
+        self.stage = self.stage_manager.get_window()
+        self.persistent_canvas = self.stage_manager.get_canvas()
 
-    # ======================================================
-    # STAGE PERSISTENTE Y SERVIDOR DE SEÑALES (UDP)
-    # ======================================================
-    def setup_stage(self):
-        self.stage = tk.Toplevel(self.root)
-        self.stage.title("Efectos - Stage")
-        self.stage.attributes("-topmost", True)
-        self.stage.attributes("-fullscreen", True)
-        self.stage.config(bg="magenta")
-        self.stage.attributes("-transparentcolor", "magenta")
-        
-        # Lienzo persistente único para efectos (boom, carta, rebote, etc.)
-        self.persistent_canvas = tk.Canvas(self.stage, bg="magenta", highlightthickness=0, bd=0)
-        self.persistent_canvas.pack(fill="both", expand=True)
-        # Exponerlo para que los módulos de efectos lo encuentren
-        self.stage.persistent_canvas = self.persistent_canvas
-        
-        # No dejar que el usuario la cierre directamente
-        self.stage.protocol("WM_DELETE_WINDOW", lambda: None)
-        # Ocultar de la barra de tareas si es posible (overrideredirect puede ser muy agresivo)
-        # self.stage.overrideredirect(True) 
         
 
     # ======================================================
@@ -216,10 +172,10 @@ class MainPanel:
         self.create_tabs()
 
     def create_tabs(self):
-        self.tab_control = self.create_scrollable_tab("Control")
-        self.tab_config = self.create_scrollable_tab("Configuración")
-        self.tab_efectos = self.create_scrollable_tab("Efectos")
-        self.tab_comandos = self.create_scrollable_tab("Comandos")
+        self.tab_control = ttk.Frame(self.notebook)
+        self.tab_config = ttk.Frame(self.notebook)
+        self.tab_efectos = ttk.Frame(self.notebook)
+        self.tab_comandos = ttk.Frame(self.notebook)
         self.tab_workshop = ttk.Frame(self.notebook)
         self.tab_info = ttk.Frame(self.notebook)
 
@@ -230,208 +186,17 @@ class MainPanel:
         self.notebook.add(self.tab_workshop, text=" 🛠️ Workshop ")
         self.notebook.add(self.tab_info, text=" ℹ️ Info ")
 
-        self.setup_control_tab()
-        self.setup_config_tab()
-        self.setup_efectos_tab()
-        self.setup_comandos_tab()
-        self.setup_workshop_tab()
-        self.setup_info_tab()
+        # Instanciar componentes modulares
+        ControlTab(self.tab_control, self)
+        ConfigTab(self.tab_config, self)
+        EfectosTab(self.tab_efectos, self)
+        ComandosTab(self.tab_comandos, self)
+        self.workshop_manager = WorkshopManager(self.tab_workshop, self)
+        self.workshop_manager.api_base = f"{BASE_URL}/api/effects"
 
-    def create_scrollable_tab(self, name):
-        return ttk.Frame(self.notebook)
+        self.info_tab = InfoTab(self.tab_info, self)
+        self.info_tab.api_url = f"{BASE_URL}/api/info"
 
-    def setup_control_tab(self):
-        parent = self.tab_control
-        card = tk.Frame(parent, bg="#ffffff", bd=1, relief="solid")
-        card.pack(fill="both", expand=True, padx=5, pady=5)
-        
-        inner = tk.Frame(card, bg="#ffffff")
-        inner.pack(fill="both", expand=True, padx=15, pady=15)
-
-        lbl_user = tk.Label(inner, text="Usuario de TikTok:", bg="#ffffff", font=("Segoe UI", 11, "bold"), fg="#2c3e50")
-        lbl_user.pack(anchor="w", pady=(0, 5))
-        
-        self.ent_user = tk.Entry(inner, font=("Segoe UI", 10), bg="#f9f9f9", bd=1)
-        self.ent_user.insert(0, self.config_data["usuario_tiktok"])
-        self.ent_user.pack(fill="x", pady=(0, 15))
-
-        frame_btns = tk.Frame(inner, bg="#ffffff")
-        frame_btns.pack(pady=5)
-
-        self.btn_toggle = ttk.Button(frame_btns, text="▶ INICIAR LIVE", command=self.toggle_bot, width=15)
-        self.btn_toggle.pack(side="left", padx=5)
-
-        self.btn_test = ttk.Button(frame_btns, text="🧪 PRE-VISUALIZADOR", command=self.toggle_test_mode, width=15)
-        self.btn_test.pack(side="left", padx=5)
-
-        lbl_log = tk.Label(inner, text="📜 Registro de Eventos:", bg="#ffffff", font=("Segoe UI", 11, "bold"), fg="#2c3e50")
-        lbl_log.pack(anchor="w", pady=(15, 5))
-        
-        log_frame = tk.Frame(inner, bg="#1e1e1e", bd=1, relief="sunken")
-        log_frame.pack(fill="both", expand=True)
-        
-        self.log_txt = tk.Text(log_frame, height=10, width=60, state='disabled', font=("Consolas", 9), bg="#1e1e1e", fg="#00ff00", insertbackground="white", bd=0)
-        self.log_txt.pack(fill="both", expand=True, padx=5, pady=5)
-
-    def setup_config_tab(self):
-        parent = self.tab_config
-        canvas = tk.Canvas(parent, highlightthickness=0, bg="#f0f0f0")
-        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas)
-
-        scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-
-        main_content = ttk.Frame(scrollable_frame)
-        main_content.pack(fill="x", padx=10, pady=10)
-
-        # --- SECCIÓN 1: CONFIGURACIÓN DE MENSAJES ---
-        frame_msg = ttk.LabelFrame(main_content, text=" Mensajes ")
-        frame_msg.pack(fill="x", pady=5)
-
-        ttk.Label(frame_msg, text="Mensaje Follow:").grid(row=0, column=0, sticky="w", padx=5, pady=2)
-        self.ent_msg_follow = ttk.Entry(frame_msg, width=50, font=("Segoe UI", 9))
-        self.ent_msg_follow.insert(0, self.config_data["msg_follow"])
-        self.ent_msg_follow.grid(row=1, column=0, columnspan=2, sticky="ew", padx=5, pady=(0, 10))
-
-        ttk.Label(frame_msg, text="Mensaje Gift:").grid(row=2, column=0, sticky="w", padx=5, pady=2)
-        self.ent_msg_gift = ttk.Entry(frame_msg, width=50, font=("Segoe UI", 9))
-        self.ent_msg_gift.insert(0, self.config_data["msg_gift"])
-        self.ent_msg_gift.grid(row=3, column=0, columnspan=2, sticky="ew", padx=5, pady=(0, 10))
-
-        ttk.Label(frame_msg, text="Delay (segundos):").grid(row=4, column=0, sticky="w", padx=5, pady=2)
-        ttk.Spinbox(frame_msg, from_=0, to=10, increment=0.5, width=10, textvariable=self.delay_val).grid(row=4, column=1, sticky="e", padx=5, pady=2)
-        
-        ttk.Checkbutton(frame_msg, text="Priorizar Regalos/Follows (Saltar delay)", variable=self.skip_delay).grid(row=5, column=0, columnspan=2, sticky="w", padx=5, pady=5)
-
-        # --- SECCIÓN 2: LECTURA DE VOZ ---
-        frame_voice = ttk.LabelFrame(main_content, text=" Lectura de Voz (TTS) ")
-        frame_voice.pack(fill="x", pady=10)
-
-        grid_voice = ttk.Frame(frame_voice)
-        grid_voice.pack(fill="x", padx=5, pady=5)
-        
-        ttk.Checkbutton(grid_voice, text="🔊 Leer Chat", variable=self.voice_chat).grid(row=0, column=0, sticky="w", padx=5)
-        ttk.Checkbutton(grid_voice, text="🔊 Leer Seguidores", variable=self.voice_follow).grid(row=0, column=1, sticky="w", padx=5)
-        ttk.Checkbutton(grid_voice, text="🔊 Leer Regalos", variable=self.voice_gift).grid(row=1, column=0, sticky="w", padx=5)
-        ttk.Checkbutton(grid_voice, text="😎 Leer Emojis", variable=self.read_emojis).grid(row=1, column=1, sticky="w", padx=5)
-
-        ttk.Label(frame_voice, text="Modo lectura de Chat:").pack(anchor="w", padx=10, pady=(5, 0))
-        mode_frame = ttk.Frame(frame_voice)
-        mode_frame.pack(fill="x", padx=10, pady=5)
-        ttk.Radiobutton(mode_frame, text="Leer todo", variable=self.tts_mode, value="all").pack(side="left", padx=5)
-        ttk.Radiobutton(mode_frame, text="Solo '!s'", variable=self.tts_mode, value="command").pack(side="left", padx=5)
-
-        # --- SECCIÓN 3: VOLUMEN ---
-        frame_vol = ttk.LabelFrame(main_content, text=" Control de Volumen ")
-        frame_vol.pack(fill="x", pady=5)
-
-        ttk.Label(frame_vol, text="Volumen Voz (TTS):").grid(row=0, column=0, sticky="w", padx=5, pady=2)
-        vol_tts_scale = ttk.Scale(frame_vol, from_=0, to=100, orient="horizontal", variable=self.volume_tts_val)
-        vol_tts_scale.grid(row=0, column=1, sticky="ew", padx=5, pady=2)
-
-        ttk.Label(frame_vol, text="Volumen Efectos:").grid(row=1, column=0, sticky="w", padx=5, pady=2)
-        vol_eff_scale = ttk.Scale(frame_vol, from_=0, to=100, orient="horizontal", variable=self.volume_effects_val)
-        vol_eff_scale.grid(row=1, column=1, sticky="ew", padx=5, pady=2)
-        
-        frame_vol.columnconfigure(1, weight=1)
-
-        # --- SECCIÓN 4: SISTEMA Y CONEXIÓN ---
-        frame_sys = ttk.LabelFrame(main_content, text=" Sistema y Conexión ")
-        frame_sys.pack(fill="x", pady=5)
-
-        grid_sys = ttk.Frame(frame_sys)
-        grid_sys.pack(fill="x", padx=5, pady=5)
-
-        ttk.Checkbutton(grid_sys, text="🎬 Activar Efectos de Animación", variable=self.filters_enabled).grid(row=0, column=0, sticky="w", padx=5)
-        ttk.Checkbutton(grid_sys, text="🔇 Silenciar Fondo al reproducir efectos", variable=self.allow_effects_mute).grid(row=1, column=0, sticky="w", padx=5)
-
-        ttk.Label(grid_sys, text="Reconexión (seg):").grid(row=2, column=0, sticky="w", padx=5, pady=2)
-        ttk.Spinbox(grid_sys, from_=1, to=60, width=5, textvariable=self.reconnect_interval).grid(row=2, column=1, sticky="e", padx=5, pady=2)
-
-        ttk.Label(grid_sys, text="Intentos máximos:").grid(row=3, column=0, sticky="w", padx=5, pady=2)
-        ttk.Spinbox(grid_sys, from_=1, to=100, width=5, textvariable=self.reconnect_attempts).grid(row=3, column=1, sticky="e", padx=5, pady=2)
-
-        # --- SECCIÓN 5: OPTIMIZACIÓN Y SLOTS ---
-        frame_slots = ttk.LabelFrame(main_content, text=" Optimización y Superposición (Slots) ")
-        frame_slots.pack(fill="x", pady=5)
-
-        grid_slots = ttk.Frame(frame_slots)
-        grid_slots.pack(fill="x", padx=5, pady=5)
-
-        ttk.Label(grid_slots, text="Máx. Efectos Simultáneos (por tipo):").grid(row=0, column=0, sticky="w", padx=5, pady=2)
-        ttk.Spinbox(grid_slots, from_=1, to=10, width=5, textvariable=self.max_concurrency).grid(row=0, column=1, sticky="e", padx=5, pady=2)
-
-        ttk.Label(grid_slots, text="Retraso en Combo Escalera (seg):").grid(row=1, column=0, sticky="w", padx=5, pady=2)
-        ttk.Spinbox(grid_slots, from_=0.1, to=5.0, increment=0.1, width=5, textvariable=self.delay_combo).grid(row=1, column=1, sticky="e", padx=5, pady=2)
-
-    def setup_efectos_tab(self):
-        parent = self.tab_efectos
-        parent.config(padding="10")
-
-        # Marco para los botones de acción superior
-        frame_actions = ttk.Frame(parent)
-        frame_actions.pack(fill="x", pady=5)
-
-        self.btn_add_efecto = ttk.Button(frame_actions, text="[ + ] AGREGAR EFECTO", command=self.agregar_efecto_slot)
-        self.btn_add_efecto.pack(side="left", padx=5)
-        
-        # 👇 NUEVO BOTÓN DE RECARGA
-        self.btn_reload_efectos = ttk.Button(frame_actions, text="🔄 RECARGAR LISTA", command=self.recargar_efectos)
-        self.btn_reload_efectos.pack(side="left", padx=5)
-
-        self.canvas_efectos = tk.Canvas(parent, highlightthickness=0, bg="#f0f0f0")
-        self.scrollbar_efectos = ttk.Scrollbar(parent, orient="vertical", command=self.canvas_efectos.yview)
-        self.frame_efectos = ttk.Frame(self.canvas_efectos)
-
-        self.frame_efectos.bind("<Configure>", lambda e: self.canvas_efectos.configure(scrollregion=self.canvas_efectos.bbox("all")))
-        self.canvas_efectos.create_window((0, 0), window=self.frame_efectos, anchor="nw")
-        self.canvas_efectos.configure(yscrollcommand=self.scrollbar_efectos.set)
-
-        self.canvas_efectos.pack(side="left", fill="both", expand=True)
-        self.scrollbar_efectos.pack(side="right", fill="y")
-        self.frame_efectos.bind("<Configure>", self.toggle_scroll_efectos)
-
-        if not self.efectos_disponibles:
-            ttk.Label(parent, text="⚠️ No se encontraron efectos en gift_anim.py", foreground="#c0392b", font=("Segoe UI", 10, "bold")).pack(pady=20)
-
-    def toggle_scroll_efectos(self, event=None):
-        if self.frame_efectos.winfo_reqheight() > self.canvas_efectos.winfo_height():
-            self.scrollbar_efectos.pack(side="right", fill="y")
-        else:
-            self.scrollbar_efectos.pack_forget()
-
-    def setup_comandos_tab(self):
-        parent = self.tab_comandos
-        parent.config(padding="15")
-        
-        # --- Cabecera: Añadir Comando ---
-        frame_add = ttk.LabelFrame(parent, text=" Nuevo Comando ")
-        frame_add.pack(fill="x", pady=(0, 15))
-        
-        inner_add = ttk.Frame(frame_add)
-        inner_add.pack(padx=10, pady=10, fill="x")
-        
-        ttk.Label(inner_add, text="!", font=("Segoe UI", 12, "bold")).pack(side="left")
-        self.ent_new_cmd = ttk.Entry(inner_add, font=("Segoe UI", 11))
-        self.ent_new_cmd.pack(side="left", padx=5, fill="x", expand=True)
-        self.ent_new_cmd.bind("<Return>", lambda e: self.agregar_comando())
-        
-        btn_add = ttk.Button(inner_add, text="Añadir Comando", command=self.agregar_comando)
-        btn_add.pack(side="left", padx=5)
-
-        # --- Lista de Comandos ---
-        lbl_list = ttk.Label(parent, text="Comandos Activos:", font=("Segoe UI", 10, "bold"))
-        lbl_list.pack(anchor="w", pady=(0, 5))
-        
-        self.frame_cmds_list = ttk.Frame(parent)
-        self.frame_cmds_list.pack(fill="both", expand=True)
-        
-        self.actualizar_vista_comandos()
 
     def agregar_comando(self):
         cmd = self.ent_new_cmd.get().strip()
@@ -503,27 +268,6 @@ class MainPanel:
                         slot["tt_evento"].update_text(valor_actual)
             except: pass
 
-    def setup_workshop_tab(self):
-        self.workshop_manager = WorkshopManager(self.tab_workshop, self)
-
-    def setup_info_tab(self):
-        parent = self.tab_info
-        parent.config(padding="20")
-        
-        title = ttk.Label(parent, text="ℹ️ TikTok Live Bot - Pro", style="Header.TLabel")
-        title.pack(anchor="w", pady=(0, 20))
-        
-        content_frame = ttk.Frame(parent)
-        content_frame.pack(fill="x")
-
-        def add_section(title, body):
-            section = ttk.LabelFrame(content_frame, text=f" {title} ")
-            section.pack(fill="x", pady=(0, 15))
-            lbl = ttk.Label(section, text=body, font=("Segoe UI", 10), wraplength=500, justify="left")
-            lbl.pack(anchor="w", padx=10, pady=10)
-
-        add_section("• Muteo Inteligente", "Usa la opción global 'Permitir que los efectos silencien el fondo' para activar el sistema. Luego, marca el icono 🔇 en cada filtro específico que deba cortar el sonido del juego o música.")
-        add_section("• Gestión de Efectos", "Si agregas nuevos sonidos o efectos a las carpetas, usa el botón 'RECARGAR EFECTOS' para actualizar la lista sin reiniciar el programa.")
 
     # ======================================================
     # LÓGICA DE MUTEO
@@ -867,6 +611,12 @@ class MainPanel:
                             st = "readonly" if isinstance(widget, ttk.Combobox) else "normal"
                             widget.config(state=st)
                         except: pass
+
+    def toggle_scroll_efectos(self, event=None):
+        if self.frame_efectos.winfo_reqheight() > self.canvas_efectos.winfo_height():
+            self.scrollbar_efectos.pack(side="right", fill="y")
+        else:
+            self.scrollbar_efectos.pack_forget()
 
     def detectar_efectos(self):
         if not os.path.exists("core/gift_anim.py"): return []

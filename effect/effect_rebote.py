@@ -36,7 +36,7 @@ def ejecutar(duracion_ms=None, volumen=100, sub_tipo='NULL', cantidad=1, parent=
     if duracion_ms == 0: return {"error": "DVD = \"value invalid\""}
     ruta_iconos = "icon"
     if not os.path.exists(ruta_iconos): return {"error": "icon/ no found"}
-    archivos = [f for f in os.listdir(ruta_iconos) if f.endswith('.png') and f.split('.')[0].isdigit()]
+    archivos = [f for f in os.listdir(ruta_iconos) if f.endswith('.png')]
     if not archivos: return {"error": "no icons"}
 
     done_event = threading.Event()

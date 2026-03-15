@@ -10,8 +10,6 @@ else:
     base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # PRIORIZAR ARCHIVOS EXTERNOS:
-# Agregamos la ruta base al principio de sys.path para que Python prefiera
-# cargar los archivos .py de la carpeta física antes que los empaquetados en el EXE.
 if base_path not in sys.path:
     sys.path.insert(0, base_path)
 
@@ -21,106 +19,126 @@ import tkinter as tk
 from tkinter import messagebox
 from PIL import Image, ImageTk
 
-# Ahora la importación buscará primero en la carpeta 'core' externa
-from ui.panel import MainPanel
-
-# ===== MANEJADOR DE ERRORES GLOBAL (ACTUALIZADO) =====
+# ===== MANEJADOR DE ERRORES GLOBAL =====
 def manejar_error_global(exc_type, exc_value, exc_traceback):
-    """
-    Registra errores y muestra ventana de error NATIVA.
-    Usa messagebox.showerror para mantener consistencia con el panel.
-    """
-    # Registrar en log.txt
     error_msg = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
     with open("log.txt", "a", encoding="utf-8") as f:
         f.write(f"\n{'='*50}\n{time.ctime()}\n{error_msg}\n{'='*50}\n")
     
-    # Mostrar ventana de error nativa (Estilo Consistente)
     try:
         messagebox.showerror(
             title="💥 Error Crítico",
-            message=f"El programa ha encontrado un error inesperado.\n\nDetalle: {str(exc_value)}\n\nSe ha guardado un registro en 'log.txt'.",
-            parent=root  # parent no está definido aquí, messagebox maneja bien la ventana madre o por defecto
+            message=f"El programa ha encontrado un error inesperado.\n\nDetalle: {str(exc_value)}\n\nSe ha guardado un registro en 'log.txt'."
         )
-        # Opcional: Si quieres permitir copiar al portapapeles o cerrar:
-        # respuesta = messagebox.askyesno("Error", "El programa falló. ¿Deseas salir?")
     except:
-        # Fallback en caso de error de UI
         print(f"CRASH FATAL: {exc_value}")
         print(error_msg)
-        input("Presiona Enter para salir...")
     
     os._exit(1)
 
 sys.excepthook = manejar_error_global
 
-# ===== INICIALIZACIÓN DEL ORQUESTADOR =====
-if __name__ == "__main__":
-    try:
-        # Configuración del color de transparencia para la pantalla de carga
-        CROMA = 'white'
+# ===== DETECCIÓN DINÁMICA DE EVENTOS =====
+def discover_events():
+    events = {}
+    ui_dir = os.path.join(base_path, "core", "ui")
+    if os.path.exists(ui_dir):
+        for f in os.listdir(ui_dir):
+            if f.startswith("event_") and f.endswith(".py"):
+                name = f[6:-3]
+                events[name] = f"ui.{f[:-3]}"
+    return events
 
-        # Crear ventana principal (oculta inicialmente)
-        root = tk.Tk()
-        root.withdraw()
-        
-        # --- Pantalla de Carga ---
-        loading = tk.Toplevel(root)
-        loading.title("Cargando...")
-        loading.overrideredirect(True)
-        loading.config(bg=CROMA)
-        
-        try:
-            # Cargar imagen PNG con transparencia
+# ===== PANTALLA DE CARGA (SPLASH SCREEN) =====
+def create_loading_screen(root):
+    """Crea una ventana de carga estética y la mantiene siempre al frente."""
+    CROMA = 'white'
+    loading = tk.Toplevel(root)
+    loading.title("Cargando...")
+    loading.overrideredirect(True)
+    loading.attributes("-topmost", True) # SIEMPRE ADELANTE
+    loading.config(bg=CROMA)
+    
+    try:
+        if os.path.exists("loading.png"):
             original_img = Image.open("loading.png")
-            
-            # Asegurar modo RGBA
             if original_img.mode != 'RGBA':
                 original_img = original_img.convert('RGBA')
             
-            # Escalar imagen
+            # Escalar imagen (1/3 del tamaño original)
             new_size = (original_img.width // 3, original_img.height // 3)
             scaled_img = original_img.resize(new_size, Image.LANCZOS)
-            loading_img = ImageTk.PhotoImage(scaled_img)
+            tk_img = ImageTk.PhotoImage(scaled_img)
             
-            # Etiqueta de la imagen
-            loading_label = tk.Label(
-                loading, 
-                image=loading_img, 
-                borderwidth=0,
-                highlightthickness=0,
-                bg=CROMA
-            )
-            loading_label.image = loading_img
-            loading_label.pack()
+            lbl = tk.Label(loading, image=tk_img, borderwidth=0, highlightthickness=0, bg=CROMA)
+            lbl.image = tk_img
+            lbl.pack()
             
-            # Configurar transparencia de ventana
             loading.wm_attributes('-transparentcolor', CROMA)
-            loading.config(bg=CROMA)
             
             # Centrar en pantalla
-            screen_width = loading.winfo_screenwidth()
-            screen_height = loading.winfo_screenheight()
-            x = (screen_width // 2) - (scaled_img.width // 2)
-            y = (screen_height // 2) - (scaled_img.height // 2)
+            sw, sh = loading.winfo_screenwidth(), loading.winfo_screenheight()
+            x = (sw // 2) - (scaled_img.width // 2)
+            y = (sh // 2) - (scaled_img.height // 2)
             loading.geometry(f"{scaled_img.width}x{scaled_img.height}+{x}+{y}")
-        except Exception as e:
-            print("Advertencia: No se pudo cargar loading.png", e)
-            loading.destroy()
-            
-        loading.update()
-        
-        # --- Inicializar la Aplicación Principal ---
-        # Aquí instanciamos MainPanel desde ui/panel.py
-        app = MainPanel(root)
-        
-        # Destruir pantalla de carga y mostrar ventana principal
-        if loading.winfo_exists():
-            loading.destroy()
-        
-        root.deiconify()
-        root.mainloop()
-        
+        else:
+            # Fallback simple si no hay imagen
+            tk.Label(loading, text="🚀 Cargando TikTok Panel Pro...", padx=20, pady=10, font=("Segoe UI", 12, "bold")).pack()
+            loading.update()
+            sw, sh = loading.winfo_screenwidth(), loading.winfo_screenheight()
+            loading.geometry(f"+{(sw//2)-100}+{(sh//2)-30}")
     except Exception as e:
-        # Llamamos al manejador global si falla la inicialización
-        manejar_error_global(type(e), e, e.__traceback__)
+        print(f"Error en loading screen: {e}")
+        loading.destroy()
+        return None
+        
+    loading.update()
+    return loading
+
+# ===== INICIALIZACIÓN DEL ORQUESTADOR =====
+if __name__ == "__main__":
+    events = discover_events()
+    arg = sys.argv[1].lower().replace("--", "") if len(sys.argv) > 1 else "panel"
+
+    # Preparar base oculta para el Splash Screen
+    root = tk.Tk()
+    root.withdraw()
+    
+    splash = create_loading_screen(root)
+
+    if arg == "panel":
+        try:
+            from ui.panel import MainPanel
+            app = MainPanel(root)
+            
+            if splash and splash.winfo_exists():
+                splash.destroy()
+            
+            root.deiconify()
+            root.mainloop()
+        except Exception as e:
+            manejar_error_global(type(e), e, e.__traceback__)
+    
+    elif arg in events:
+        try:
+            import importlib
+            print(f">>> Iniciando Evento Independiente: {arg}")
+            module_name = events[arg]
+            module = importlib.import_module(module_name)
+            
+            if splash and splash.winfo_exists():
+                splash.destroy()
+
+            if hasattr(module, "start"):
+                module.start()
+            else:
+                print(f"⚠️ Módulo '{arg}' no tiene función 'start()'.")
+        except Exception as e:
+            manejar_error_global(type(e), e, e.__traceback__)
+    else:
+        if splash: splash.destroy()
+        print(f"Error: Argumento '{arg}' no reconocido.")
+        print("Uso: main.py [--panel | --nombre_evento]")
+        if events:
+            print("Eventos detectados:", ", ".join(events.keys()))
+        sys.exit(1)

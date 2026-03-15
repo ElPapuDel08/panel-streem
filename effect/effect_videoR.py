@@ -40,10 +40,8 @@ def listar_sub_efectos():
     sub_efectos = []
     for f in os.listdir(ruta_videos):
         if f.endswith('.mp4'):
-            partes = f.split('_', 1)
-            if partes and partes[0].isdigit():
-                nombre = os.path.splitext(f)[0]
-                sub_efectos.append(f"video_{nombre}")
+            nombre = os.path.splitext(f)[0]
+            sub_efectos.append(f"video_{nombre}")
     
     return sorted(sub_efectos)
 
@@ -132,7 +130,7 @@ def ejecutar(duracion_ms=None, volumen=100, sub_tipo='NULL', cantidad=1, parent=
         if sub_tipo == 'NULL':
             ruta_videos = "video"
             if not os.path.exists(ruta_videos): return {"error": "video/ no found"}
-            archivos = [f for f in os.listdir(ruta_videos) if f.endswith('.mp4') and f.split('_', 1)[0].isdigit()]
+            archivos = [f for f in os.listdir(ruta_videos) if f.endswith('.mp4')]
             if not archivos: return {"error": "no valid videos"}
             nombre_a_ejecutar = os.path.splitext(random.choice(archivos))[0]
         else:

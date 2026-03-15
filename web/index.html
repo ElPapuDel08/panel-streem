@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TikTok Live Bot - Pro</title>
+    <link rel="stylesheet" href="css/style.css">
+    <!-- Eel script será inyectado automáticamente por Eel al iniciar -->
+    <script type="text/javascript" src="/eel.js"></script>
+</head>
+
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="logo">
+                <img src="logo.png" alt="Logo" class="logo-img">
+                <span>TikTok Bot</span>
+            </div>
+            <nav class="nav-menu">
+                <button class="nav-item active" data-tab="control">🎮 Control</button>
+                <button class="nav-item" data-tab="config">⚙️ Ajustes</button>
+                <button class="nav-item" data-tab="efectos">🎭 Efectos</button>
+                <button class="nav-item" data-tab="comandos">💬 Comandos</button>
+            </nav>
+            <div class="status-indicator">
+                <div class="dot" id="connection-dot"></div>
+                <span id="status-text">Desconectado</span>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <!-- Pestaña Control -->
+            <section id="tab-control" class="tab-content active">
+                <header>
+                    <h1>Panel de Control</h1>
+                </header>
+                <div class="card glass">
+                    <div class="input-group">
+                        <label for="tiktok-user">Usuario de TikTok:</label>
+                        <input type="text" id="tiktok-user" placeholder="@usuario">
+                    </div>
+                    <div class="button-group">
+                        <button id="btn-toggle-live" class="btn btn-primary">▶ INICIAR LIVE</button>
+                        <button id="btn-open-test" class="btn btn-secondary">🧪 TEST</button>
+                    </div>
+                </div>
+                <div class="card glass full-height" id="log-container">
+                    <h3>Registro de Eventos</h3>
+                    <div id="event-log" class="log-area"></div>
+                </div>
+            </section>
+
+            <!-- Otras pestañas se añadirán dinámicamente o estarán ocultas -->
+            <section id="tab-config" class="tab-content">
+                <h1>Ajustes</h1>
+                <p>Contenido de ajustes llegará pronto...</p>
+            </section>
+        </main>
+    </div>
+    <script src="js/script.js"></script>
+</body>
+
+</html>
