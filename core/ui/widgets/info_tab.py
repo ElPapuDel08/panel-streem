@@ -46,7 +46,8 @@ class InfoTab:
             else:
                 raise Exception(f"Status {response.status_code}")
         except Exception as e:
-            self.panel.root.after(0, lambda: self._render_error(str(e)))
+            err_msg = str(e)
+            self.panel.root.after(0, lambda e_str=err_msg: self._render_error(e_str))
 
     def _render_info(self, data):
         # Limpiar contenido
